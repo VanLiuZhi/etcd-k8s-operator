@@ -1,0 +1,101 @@
+graph TB
+    subgraph "Kubernetes Cluster"
+        subgraph "ETCD Operator Namespace"
+            OP[ETCD Operator]
+            WH[Admission Webhook]
+            OP --> WH
+        end
+        
+        subgraph "ETCD Cluster Namespace"
+            subgraph "ETCD Cluster"
+                E1[ETCD Node 1<br/>Leader]
+                E2[ETCD Node 2<br/>Follower]
+                E3[ETCD Node 3<br/>Follower]
+                E1 -.-> E2
+                E1 -.-> E3
+                E2 -.-> E3
+            end
+            
+            SVC[Headless Service]
+            CSVC[Client Service]
+            CM[ConfigMap]
+            SEC[TLS Secrets]
+            PVC1[PVC 1]
+            PVC2[PVC 2]
+            PVC3[PVC 3]
+            
+            E1 --> PVC1
+            E2 --> PVC2
+            E3 --> PVC3
+            
+            SVC --> E1
+            SVC --> E2
+            SVC --> E3
+            
+            CSVC --> E1
+            CSVC --> E2
+            CSVC --> E3
+        end
+        
+        subgraph "Monitoring"
+            PROM[Prometheus]
+            GRAF[Grafana]
+            AM[AlertManager]
+            PROM --> GRAF
+            PROM --> AM
+        end
+        
+        subgraph "Backup Storage"
+            S3[S3 Compatible Storage]
+            LOCAL[Local Storage]
+        end
+    end
+    
+    subgraph "External Systems"
+        CLIENT[ETCD Clients]
+        BACKUP[Backup Jobs]
+    end
+    
+    %% CRD Resources
+    CRD1[EtcdCluster CRD]
+    CRD2[EtcdBackup CRD]
+    CRD3[EtcdRestore CRD]
+    
+    %% Operator Connections
+    OP --> CRD1
+    OP --> CRD2
+    OP --> CRD3
+    OP --> E1
+    OP --> E2
+    OP --> E3
+    OP --> SVC
+    OP --> CSVC
+    OP --> CM
+    OP --> SEC
+    
+    %% Monitoring Connections
+    E1 --> PROM
+    E2 --> PROM
+    E3 --> PROM
+    OP --> PROM
+    
+    %% Client Connections
+    CLIENT --> CSVC
+    
+    %% Backup Connections
+    BACKUP --> S3
+    BACKUP --> LOCAL
+    OP --> BACKUP
+    
+    %% Styling
+    classDef etcdNode fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef operator fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef storage fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef monitoring fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef crd fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    
+    class E1,E2,E3 etcdNode
+    class OP,WH operator
+    class PVC1,PVC2,PVC3,S3,LOCAL storage
+    class PROM,GRAF,AM monitoring
+    class CRD1,CRD2,CRD3 crd
