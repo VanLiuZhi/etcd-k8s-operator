@@ -1,0 +1,9 @@
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdBackup
+metadata:
+  labels:
+    app.kubernetes.io/name: etcd-k8s-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: etcdbackup-sample
+spec:
+  # TODO(user): Add fields here
