@@ -20,26 +20,119 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// EtcdBackupPhase represents the phase of an EtcdBackup
+type EtcdBackupPhase string
+
+const (
+	// EtcdBackupPhaseRunning indicates the backup is running
+	EtcdBackupPhaseRunning EtcdBackupPhase = "Running"
+	// EtcdBackupPhaseCompleted indicates the backup is completed
+	EtcdBackupPhaseCompleted EtcdBackupPhase = "Completed"
+	// EtcdBackupPhaseFailed indicates the backup has failed
+	EtcdBackupPhaseFailed EtcdBackupPhase = "Failed"
+)
+
+// EtcdBackupStorageType represents the storage type for backup
+type EtcdBackupStorageType string
+
+const (
+	// EtcdBackupStorageTypeS3 indicates S3 storage
+	EtcdBackupStorageTypeS3 EtcdBackupStorageType = "S3"
+	// EtcdBackupStorageTypeGCS indicates GCS storage
+	EtcdBackupStorageTypeGCS EtcdBackupStorageType = "GCS"
+	// EtcdBackupStorageTypeLocal indicates local storage
+	EtcdBackupStorageTypeLocal EtcdBackupStorageType = "Local"
+)
+
+// EtcdS3BackupSpec defines S3 backup configuration
+type EtcdS3BackupSpec struct {
+	// Bucket is the S3 bucket name
+	Bucket string `json:"bucket"`
+
+	// Region is the S3 region
+	Region string `json:"region,omitempty"`
+
+	// Endpoint is the S3 endpoint URL
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// AccessKeySecret is the secret containing S3 access key
+	AccessKeySecret string `json:"accessKeySecret,omitempty"`
+
+	// SecretKeySecret is the secret containing S3 secret key
+	SecretKeySecret string `json:"secretKeySecret,omitempty"`
+
+	// Path is the path prefix in the bucket
+	Path string `json:"path,omitempty"`
+}
+
+// EtcdRetentionPolicy defines backup retention policy
+type EtcdRetentionPolicy struct {
+	// MaxBackups is the maximum number of backups to retain
+	MaxBackups int32 `json:"maxBackups,omitempty"`
+
+	// MaxAge is the maximum age of backups to retain
+	MaxAge string `json:"maxAge,omitempty"`
+}
 
 // EtcdBackupSpec defines the desired state of EtcdBackup
 type EtcdBackupSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// ClusterName is the name of the EtcdCluster to backup
+	ClusterName string `json:"clusterName"`
 
-	// Foo is an example field of EtcdBackup. Edit etcdbackup_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// ClusterNamespace is the namespace of the EtcdCluster
+	ClusterNamespace string `json:"clusterNamespace,omitempty"`
+
+	// StorageType is the type of storage backend
+	StorageType EtcdBackupStorageType `json:"storageType"`
+
+	// Schedule is the cron schedule for automatic backups
+	Schedule string `json:"schedule,omitempty"`
+
+	// S3 configuration for S3 storage
+	S3 *EtcdS3BackupSpec `json:"s3,omitempty"`
+
+	// RetentionPolicy defines backup retention
+	RetentionPolicy EtcdRetentionPolicy `json:"retentionPolicy,omitempty"`
+
+	// Compression indicates whether to compress the backup
+	Compression bool `json:"compression,omitempty"`
 }
 
 // EtcdBackupStatus defines the observed state of EtcdBackup
 type EtcdBackupStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Phase is the current phase of the backup
+	Phase EtcdBackupPhase `json:"phase,omitempty"`
+
+	// Conditions represent the latest available observations of the backup's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// BackupSize is the size of the backup in bytes
+	BackupSize int64 `json:"backupSize,omitempty"`
+
+	// StartTime is the time when the backup started
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// CompletionTime is the time when the backup completed
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
+	// StoragePath is the path where the backup is stored
+	StoragePath string `json:"storagePath,omitempty"`
+
+	// EtcdVersion is the version of etcd that was backed up
+	EtcdVersion string `json:"etcdVersion,omitempty"`
+
+	// EtcdRevision is the etcd revision that was backed up
+	EtcdRevision int64 `json:"etcdRevision,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=etcdbackup
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".spec.clusterName"
+// +kubebuilder:printcolumn:name="Storage",type="string",JSONPath=".spec.storageType"
+// +kubebuilder:printcolumn:name="Size",type="string",JSONPath=".status.backupSize"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // EtcdBackup is the Schema for the etcdbackups API
 type EtcdBackup struct {

@@ -6,4 +6,33 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: etcdcluster-sample
 spec:
-  # TODO(user): Add fields here
+  # 集群大小 (必须是奇数)
+  size: 3
+
+  # etcd 版本
+  version: "3.5.9"
+
+  # 容器镜像仓库
+  repository: "quay.io/coreos/etcd"
+
+  # 存储配置
+  storage:
+    size: "10Gi"
+    # storageClassName: "fast-ssd"  # 可选：指定存储类
+
+  # 安全配置
+  security:
+    tls:
+      enabled: true
+      clientTLSEnabled: true
+      peerTLSEnabled: true
+      autoTLS: true
+
+  # 资源配置
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"

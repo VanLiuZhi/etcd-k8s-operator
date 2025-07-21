@@ -6,4 +6,30 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: etcdrestore-sample
 spec:
-  # TODO(user): Add fields here
+  # 要恢复的备份名称
+  backupName: "etcdbackup-sample"
+
+  # 目标集群名称
+  clusterName: "etcdcluster-restored"
+
+  # 恢复类型 (Replace: 替换现有集群, New: 创建新集群)
+  restoreType: "New"
+
+  # 新集群模板 (当 restoreType 为 New 时使用)
+  clusterTemplate:
+    size: 3
+    version: "3.5.9"
+    repository: "quay.io/coreos/etcd"
+    storage:
+      size: "10Gi"
+    security:
+      tls:
+        enabled: true
+        autoTLS: true
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"

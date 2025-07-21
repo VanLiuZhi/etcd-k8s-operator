@@ -11,10 +11,28 @@ spec:
     kind: EtcdBackup
     listKind: EtcdBackupList
     plural: etcdbackups
+    shortNames:
+    - etcdbackup
     singular: etcdbackup
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.clusterName
+      name: Cluster
+      type: string
+    - jsonPath: .spec.storageType
+      name: Storage
+      type: string
+    - jsonPath: .status.backupSize
+      name: Size
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: EtcdBackup is the Schema for the etcdbackups API
@@ -39,13 +57,161 @@ spec:
           spec:
             description: EtcdBackupSpec defines the desired state of EtcdBackup
             properties:
-              foo:
-                description: Foo is an example field of EtcdBackup. Edit etcdbackup_types.go
-                  to remove/update
+              clusterName:
+                description: ClusterName is the name of the EtcdCluster to backup
                 type: string
+              clusterNamespace:
+                description: ClusterNamespace is the namespace of the EtcdCluster
+                type: string
+              compression:
+                description: Compression indicates whether to compress the backup
+                type: boolean
+              retentionPolicy:
+                description: RetentionPolicy defines backup retention
+                properties:
+                  maxAge:
+                    description: MaxAge is the maximum age of backups to retain
+                    type: string
+                  maxBackups:
+                    description: MaxBackups is the maximum number of backups to retain
+                    format: int32
+                    type: integer
+                type: object
+              s3:
+                description: S3 configuration for S3 storage
+                properties:
+                  accessKeySecret:
+                    description: AccessKeySecret is the secret containing S3 access
+                      key
+                    type: string
+                  bucket:
+                    description: Bucket is the S3 bucket name
+                    type: string
+                  endpoint:
+                    description: Endpoint is the S3 endpoint URL
+                    type: string
+                  path:
+                    description: Path is the path prefix in the bucket
+                    type: string
+                  region:
+                    description: Region is the S3 region
+                    type: string
+                  secretKeySecret:
+                    description: SecretKeySecret is the secret containing S3 secret
+                      key
+                    type: string
+                required:
+                - bucket
+                type: object
+              schedule:
+                description: Schedule is the cron schedule for automatic backups
+                type: string
+              storageType:
+                description: StorageType is the type of storage backend
+                type: string
+            required:
+            - clusterName
+            - storageType
             type: object
           status:
             description: EtcdBackupStatus defines the observed state of EtcdBackup
+            properties:
+              backupSize:
+                description: BackupSize is the size of the backup in bytes
+                format: int64
+                type: integer
+              completionTime:
+                description: CompletionTime is the time when the backup completed
+                format: date-time
+                type: string
+              conditions:
+                description: Conditions represent the latest available observations
+                  of the backup's state
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              etcdRevision:
+                description: EtcdRevision is the etcd revision that was backed up
+                format: int64
+                type: integer
+              etcdVersion:
+                description: EtcdVersion is the version of etcd that was backed up
+                type: string
+              phase:
+                description: Phase is the current phase of the backup
+                type: string
+              startTime:
+                description: StartTime is the time when the backup started
+                format: date-time
+                type: string
+              storagePath:
+                description: StoragePath is the path where the backup is stored
+                type: string
             type: object
         type: object
     served: true

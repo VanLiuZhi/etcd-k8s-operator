@@ -20,26 +20,84 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// EtcdRestorePhase represents the phase of an EtcdRestore
+type EtcdRestorePhase string
+
+const (
+	// EtcdRestorePhaseRunning indicates the restore is running
+	EtcdRestorePhaseRunning EtcdRestorePhase = "Running"
+	// EtcdRestorePhaseCompleted indicates the restore is completed
+	EtcdRestorePhaseCompleted EtcdRestorePhase = "Completed"
+	// EtcdRestorePhaseFailed indicates the restore has failed
+	EtcdRestorePhaseFailed EtcdRestorePhase = "Failed"
+)
+
+// EtcdRestoreType represents the type of restore operation
+type EtcdRestoreType string
+
+const (
+	// EtcdRestoreTypeReplace replaces the existing cluster
+	EtcdRestoreTypeReplace EtcdRestoreType = "Replace"
+	// EtcdRestoreTypeNew creates a new cluster from backup
+	EtcdRestoreTypeNew EtcdRestoreType = "New"
+)
 
 // EtcdRestoreSpec defines the desired state of EtcdRestore
 type EtcdRestoreSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// BackupName is the name of the EtcdBackup to restore from
+	BackupName string `json:"backupName"`
 
-	// Foo is an example field of EtcdRestore. Edit etcdrestore_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// BackupNamespace is the namespace of the EtcdBackup
+	BackupNamespace string `json:"backupNamespace,omitempty"`
+
+	// ClusterName is the name of the target EtcdCluster
+	ClusterName string `json:"clusterName"`
+
+	// ClusterTemplate is the template for creating a new cluster (for new restore type)
+	ClusterTemplate *EtcdClusterSpec `json:"clusterTemplate,omitempty"`
+
+	// RestoreType is the type of restore operation
+	RestoreType EtcdRestoreType `json:"restoreType,omitempty"`
+
+	// DataDir is the data directory for etcd
+	DataDir string `json:"dataDir,omitempty"`
+
+	// SkipHashCheck skips hash check during restore
+	SkipHashCheck bool `json:"skipHashCheck,omitempty"`
+
+	// WalDir is the WAL directory for etcd
+	WalDir string `json:"walDir,omitempty"`
 }
 
 // EtcdRestoreStatus defines the observed state of EtcdRestore
 type EtcdRestoreStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Phase is the current phase of the restore
+	Phase EtcdRestorePhase `json:"phase,omitempty"`
+
+	// Conditions represent the latest available observations of the restore's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// StartTime is the time when the restore started
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// CompletionTime is the time when the restore completed
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
+	// RestoredCluster is the name of the restored cluster
+	RestoredCluster string `json:"restoredCluster,omitempty"`
+
+	// RestoredSize is the size of the restored data in bytes
+	RestoredSize int64 `json:"restoredSize,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=etcdrestore
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Backup",type="string",JSONPath=".spec.backupName"
+// +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".spec.clusterName"
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.restoreType"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // EtcdRestore is the Schema for the etcdrestores API
 type EtcdRestore struct {

@@ -6,4 +6,27 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: etcdbackup-sample
 spec:
-  # TODO(user): Add fields here
+  # 要备份的集群名称
+  clusterName: "etcdcluster-sample"
+
+  # 存储类型
+  storageType: "S3"
+
+  # 定时备份 (每天凌晨2点)
+  schedule: "0 2 * * *"
+
+  # S3 配置
+  s3:
+    bucket: "my-etcd-backups"
+    region: "us-west-2"
+    path: "etcd-backups/"
+    accessKeySecret: "s3-credentials"
+    secretKeySecret: "s3-credentials"
+
+  # 保留策略
+  retentionPolicy:
+    maxBackups: 30
+    maxAge: "30d"
+
+  # 启用压缩
+  compression: true
