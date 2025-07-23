@@ -108,12 +108,9 @@ kubectl get pods -l app.kubernetes.io/name=etcd,app.kubernetes.io/instance=my-et
 
 ## 📚 文档
 
-- [📖 用户指南](docs/user-guide.md)
-- [🔧 配置参考](docs/configuration.md)
-- [🏗️ 架构设计](docs/architecture.md)
-- [🧪 开发指南](docs/development.md)
-- [❓ 故障排除](docs/troubleshooting.md)
-- [📊 监控指南](docs/monitoring.md)
+- [📋 项目主控文档](PROJECT_MASTER.md) - 项目概述、进度追踪、里程碑管理
+- [🔧 技术规范文档](TECHNICAL_SPECIFICATION.md) - API 设计、控制器逻辑、技术约束
+- [🧪 开发指南](DEVELOPMENT_GUIDE.md) - 开发环境、代码规范、测试指南
 
 ## 🛠️ 开发
 
@@ -168,23 +165,22 @@ make test-coverage
 
 ## 📊 项目状态
 
-### 当前进度 (第 1 周)
+> **详细进度追踪请查看**: [项目主控文档](PROJECT_MASTER.md)
 
-- [x] **项目架构设计**: 完成整体架构设计和技术选型
-- [x] **项目初始化**: 使用 Kubebuilder 初始化项目结构
-  - ✅ 使用 Kubebuilder v4.0.0 初始化项目
-  - ✅ 创建 EtcdCluster、EtcdBackup、EtcdRestore CRD
-  - ✅ 生成基础控制器框架
-  - ✅ 配置 Makefile 和开发工具
-  - ✅ 设置项目目录结构
-- [ ] **CRD 设计**: 设计 EtcdCluster 和相关 CRD 的详细规范
-- [ ] **基础控制器**: 实现核心控制器框架
+### 当前阶段: 核心控制器实现 (第3-4周)
 
-### 下一步计划
+- [x] **项目架构设计** - 完整的技术架构和设计方案
+- [x] **项目初始化** - Kubebuilder 项目脚手架和基础设施
+- [x] **CRD 设计实现** - 完整的 API 类型定义和验证规则
+- [ ] **核心控制器实现** - EtcdCluster 控制器基础逻辑 (进行中)
 
-1. **本周目标**: 完成 CRD 详细设计和基础控制器实现
-2. **下周目标**: 实现核心控制器逻辑和基本集群管理
-3. **月度目标**: 完成高可用和扩缩容功能
+### 完成度: 25% (3/10 个主要阶段完成)
+
+### 下一步重点
+
+1. **本周目标**: 实现 EtcdCluster 控制器基础框架
+2. **下周目标**: 完成集群创建和删除流程
+3. **月度目标**: 完成扩缩容和备份恢复功能
 
 ### 里程碑
 
