@@ -1,0 +1,11 @@
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: test-cluster
+  namespace: default
+spec:
+  size: 3
+  version: "3.5.9"
+  repository: "quay.io/coreos/etcd"
+  storage:
+    size: "1Gi"

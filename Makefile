@@ -60,22 +60,47 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+test: manifests generate fmt vet envtest ## Run unit tests.
+	@echo "Running unit tests..."
+	@scripts/test/run-unit-tests.sh
 
-# Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
-.PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
-test-e2e:
-	go test ./test/e2e/ -v -ginkgo.v
+.PHONY: test-unit
+test-unit: test ## Alias for unit tests.
+
+.PHONY: test-integration
+test-integration: manifests generate fmt vet envtest ## Run integration tests.
+	@echo "Running integration tests..."
+	@scripts/test/run-integration-tests.sh
+
+.PHONY: test-e2e
+test-e2e: manifests generate fmt vet ## Run end-to-end tests.
+	@echo "Running end-to-end tests..."
+	@scripts/test/run-e2e-tests.sh
+
+.PHONY: test-all
+test-all: ## Run all tests (unit, integration, e2e).
+	@echo "Running all tests..."
+	@scripts/test/test-all.sh
+
+.PHONY: test-fast
+test-fast: ## Run tests in fast mode (skip non-critical tests).
+	@echo "Running tests in fast mode..."
+	@scripts/test/test-all.sh --fast
+
+.PHONY: test-setup
+test-setup: ## Setup test environment.
+	@echo "Setting up test environment..."
+	@scripts/test/setup-test-env.sh
+
+.PHONY: test-cleanup
+test-cleanup: ## Cleanup test environment.
+	@echo "Cleaning up test environment..."
+	@scripts/test/cleanup-test-env.sh
 
 .PHONY: test-coverage
 test-coverage: manifests generate fmt vet envtest ## Run tests with coverage report.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out -covermode=atomic
 	go tool cover -html=cover.out -o coverage.html
-
-.PHONY: test-integration
-test-integration: ## Run integration tests.
-	go test ./test/integration/ -v -ginkgo.v
 
 ##@ Kind Development
 

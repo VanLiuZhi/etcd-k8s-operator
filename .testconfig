@@ -1,0 +1,52 @@
+# ETCD Operator 测试配置文件
+
+# 集群配置
+CLUSTER_NAME=etcd-operator-test
+TEST_NAMESPACE=etcd-operator-test
+
+# 测试超时配置 (秒)
+UNIT_TEST_TIMEOUT=600
+INTEGRATION_TEST_TIMEOUT=1800
+E2E_TEST_TIMEOUT=3600
+
+# 覆盖率配置
+COVERAGE_THRESHOLD=50
+COVERAGE_DIR=coverage
+
+# Docker 镜像配置
+OPERATOR_IMAGE=etcd-operator:test
+E2E_IMAGE=etcd-operator:e2e
+
+# Kind 集群配置
+KIND_NODE_IMAGE=kindest/node:v1.28.0
+KIND_CLUSTER_CONFIG=scripts/test/kind-config.yaml
+
+# 测试并发配置
+TEST_PARALLEL=4
+GINKGO_PARALLEL_NODES=4
+
+# 日志级别
+LOG_LEVEL=info
+TEST_LOG_LEVEL=debug
+
+# 功能开关
+ENABLE_WEBHOOKS=true
+ENABLE_METRICS=true
+ENABLE_LEADER_ELECTION=false
+
+# 资源限制
+TEST_MEMORY_LIMIT=2Gi
+TEST_CPU_LIMIT=1000m
+
+# 清理配置
+AUTO_CLEANUP=true
+CLEANUP_ON_FAILURE=true
+
+# 重试配置
+MAX_RETRIES=3
+RETRY_INTERVAL=10s
+
+# 环境特定配置
+# Mac + OrbStack 优化
+DOCKER_BUILDKIT=1
+COMPOSE_DOCKER_CLI_BUILD=1
