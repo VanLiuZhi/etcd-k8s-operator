@@ -165,6 +165,8 @@ etcd-k8s-operator/
 ## 📚 相关文档
 
 - [技术规范文档](TECHNICAL_SPECIFICATION.md) - 详细的 API 设计和实现规范
+- [开发规则文档](docs/DEVELOPMENT_RULES.md) - 开发规范、测试驱动开发、质量标准
+- [测试指南](docs/TESTING_GUIDE.md) - 完整的测试策略和执行指南
 - [开发指南](DEVELOPMENT_GUIDE.md) - 开发环境设置和代码规范
 - [API 参考](docs/api-reference.md) - CRD 字段详细说明
 

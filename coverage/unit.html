@@ -1,0 +1,556 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>k8s: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/your-org/etcd-k8s-operator/pkg/k8s/resources.go (97.1%)</option>
+				
+				<option value="file1">github.com/your-org/etcd-k8s-operator/pkg/utils/labels.go (100.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package k8s
+
+import (
+        "fmt"
+
+        appsv1 "k8s.io/api/apps/v1"
+        corev1 "k8s.io/api/core/v1"
+        "k8s.io/apimachinery/pkg/api/resource"
+        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+        "k8s.io/apimachinery/pkg/util/intstr"
+
+        etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+        "github.com/your-org/etcd-k8s-operator/pkg/utils"
+)
+
+// BuildStatefulSet creates a StatefulSet for the EtcdCluster
+func BuildStatefulSet(cluster *etcdv1alpha1.EtcdCluster) *appsv1.StatefulSet <span class="cov1" title="1">{
+        labels := utils.LabelsForEtcdCluster(cluster)
+        selectorLabels := utils.SelectorLabelsForEtcdCluster(cluster)
+
+        sts := &amp;appsv1.StatefulSet{
+                ObjectMeta: metav1.ObjectMeta{
+                        Name:        cluster.Name,
+                        Namespace:   cluster.Namespace,
+                        Labels:      labels,
+                        Annotations: utils.AnnotationsForEtcdCluster(cluster),
+                },
+                Spec: appsv1.StatefulSetSpec{
+                        Replicas:    &amp;cluster.Spec.Size,
+                        ServiceName: fmt.Sprintf("%s-peer", cluster.Name),
+                        Selector: &amp;metav1.LabelSelector{
+                                MatchLabels: selectorLabels,
+                        },
+                        Template: corev1.PodTemplateSpec{
+                                ObjectMeta: metav1.ObjectMeta{
+                                        Labels:      labels,
+                                        Annotations: utils.AnnotationsForEtcdCluster(cluster),
+                                },
+                                Spec: buildPodSpec(cluster),
+                        },
+                        VolumeClaimTemplates: buildVolumeClaimTemplates(cluster),
+                        PodManagementPolicy:  appsv1.ParallelPodManagement,
+                        UpdateStrategy: appsv1.StatefulSetUpdateStrategy{
+                                Type: appsv1.RollingUpdateStatefulSetStrategyType,
+                        },
+                },
+        }
+
+        return sts
+}</span>
+
+// buildPodSpec creates the pod specification for etcd
+func buildPodSpec(cluster *etcdv1alpha1.EtcdCluster) corev1.PodSpec <span class="cov1" title="1">{
+        return corev1.PodSpec{
+                Containers: []corev1.Container{
+                        buildEtcdContainer(cluster),
+                },
+                RestartPolicy:                 corev1.RestartPolicyAlways,
+                TerminationGracePeriodSeconds: &amp;[]int64{30}[0],
+                DNSPolicy:                     corev1.DNSClusterFirst,
+                SecurityContext: &amp;corev1.PodSecurityContext{
+                        FSGroup: &amp;[]int64{1000}[0],
+                },
+        }
+}</span>
+
+// buildEtcdContainer creates the etcd container specification
+func buildEtcdContainer(cluster *etcdv1alpha1.EtcdCluster) corev1.Container <span class="cov1" title="1">{
+        image := fmt.Sprintf("%s:%s", cluster.Spec.Repository, cluster.Spec.Version)
+
+        container := corev1.Container{
+                Name:  "etcd",
+                Image: image,
+                Ports: []corev1.ContainerPort{
+                        {
+                                Name:          "client",
+                                ContainerPort: utils.EtcdClientPort,
+                                Protocol:      corev1.ProtocolTCP,
+                        },
+                        {
+                                Name:          "peer",
+                                ContainerPort: utils.EtcdPeerPort,
+                                Protocol:      corev1.ProtocolTCP,
+                        },
+                },
+                Env: buildEtcdEnvironment(cluster),
+                VolumeMounts: []corev1.VolumeMount{
+                        {
+                                Name:      "data",
+                                MountPath: utils.EtcdDataDir,
+                        },
+                },
+                LivenessProbe: &amp;corev1.Probe{
+                        ProbeHandler: corev1.ProbeHandler{
+                                HTTPGet: &amp;corev1.HTTPGetAction{
+                                        Path: "/health",
+                                        Port: intstr.FromInt(utils.EtcdClientPort),
+                                },
+                        },
+                        InitialDelaySeconds: 30,
+                        PeriodSeconds:       10,
+                        TimeoutSeconds:      5,
+                        FailureThreshold:    3,
+                },
+                ReadinessProbe: &amp;corev1.Probe{
+                        ProbeHandler: corev1.ProbeHandler{
+                                HTTPGet: &amp;corev1.HTTPGetAction{
+                                        Path: "/health",
+                                        Port: intstr.FromInt(utils.EtcdClientPort),
+                                },
+                        },
+                        InitialDelaySeconds: 10,
+                        PeriodSeconds:       5,
+                        TimeoutSeconds:      3,
+                        FailureThreshold:    3,
+                },
+                Resources: buildResourceRequirements(cluster),
+        }
+
+        return container
+}</span>
+
+// buildEtcdEnvironment creates environment variables for etcd
+func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar <span class="cov1" title="1">{
+        return []corev1.EnvVar{
+                {
+                        Name: "ETCD_NAME",
+                        ValueFrom: &amp;corev1.EnvVarSource{
+                                FieldRef: &amp;corev1.ObjectFieldSelector{
+                                        FieldPath: "metadata.name",
+                                },
+                        },
+                },
+                {
+                        Name:  "ETCD_DATA_DIR",
+                        Value: utils.EtcdDataDir,
+                },
+                {
+                        Name:  "ETCD_LISTEN_CLIENT_URLS",
+                        Value: fmt.Sprintf("http://0.0.0.0:%d", utils.EtcdClientPort),
+                },
+                {
+                        Name:  "ETCD_LISTEN_PEER_URLS",
+                        Value: fmt.Sprintf("http://0.0.0.0:%d", utils.EtcdPeerPort),
+                },
+                {
+                        Name:  "ETCD_ADVERTISE_CLIENT_URLS",
+                        Value: fmt.Sprintf("http://$(ETCD_NAME).%s-peer.%s.svc.cluster.local:%d", cluster.Name, cluster.Namespace, utils.EtcdClientPort),
+                },
+                {
+                        Name:  "ETCD_INITIAL_ADVERTISE_PEER_URLS",
+                        Value: fmt.Sprintf("http://$(ETCD_NAME).%s-peer.%s.svc.cluster.local:%d", cluster.Name, cluster.Namespace, utils.EtcdPeerPort),
+                },
+                {
+                        Name:  "ETCD_INITIAL_CLUSTER_STATE",
+                        Value: "new",
+                },
+                {
+                        Name:  "ETCD_INITIAL_CLUSTER_TOKEN",
+                        Value: cluster.Name,
+                },
+                {
+                        Name:  "ETCD_INITIAL_CLUSTER",
+                        Value: buildInitialCluster(cluster),
+                },
+        }
+}</span>
+
+// buildInitialCluster creates the initial cluster configuration
+func buildInitialCluster(cluster *etcdv1alpha1.EtcdCluster) string <span class="cov5" title="3">{
+        var members []string
+        for i := int32(0); i &lt; cluster.Spec.Size; i++ </span><span class="cov10" title="9">{
+                memberName := fmt.Sprintf("%s-%d", cluster.Name, i)
+                memberURL := fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d",
+                        memberName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort)
+                members = append(members, fmt.Sprintf("%s=%s", memberName, memberURL))
+        }</span>
+        <span class="cov5" title="3">return fmt.Sprintf("%v", members)</span>
+}
+
+// buildResourceRequirements creates resource requirements for etcd container
+func buildResourceRequirements(cluster *etcdv1alpha1.EtcdCluster) corev1.ResourceRequirements <span class="cov5" title="3">{
+        // Use cluster-specific resources if provided, otherwise use defaults
+        if cluster.Spec.Resources.Requests != nil || cluster.Spec.Resources.Limits != nil </span><span class="cov1" title="1">{
+                return corev1.ResourceRequirements{
+                        Requests: cluster.Spec.Resources.Requests,
+                        Limits:   cluster.Spec.Resources.Limits,
+                }
+        }</span>
+
+        // Default resource requirements
+        <span class="cov3" title="2">return corev1.ResourceRequirements{
+                Requests: corev1.ResourceList{
+                        corev1.ResourceCPU:    resource.MustParse("100m"),
+                        corev1.ResourceMemory: resource.MustParse("128Mi"),
+                },
+                Limits: corev1.ResourceList{
+                        corev1.ResourceCPU:    resource.MustParse("1000m"),
+                        corev1.ResourceMemory: resource.MustParse("1Gi"),
+                },
+        }</span>
+}
+
+// buildVolumeClaimTemplates creates volume claim templates for StatefulSet
+func buildVolumeClaimTemplates(cluster *etcdv1alpha1.EtcdCluster) []corev1.PersistentVolumeClaim <span class="cov5" title="3">{
+        storageSize := cluster.Spec.Storage.Size
+        if storageSize.IsZero() </span><span class="cov0" title="0">{
+                storageSize = resource.MustParse(utils.DefaultStorageSize)
+        }</span>
+
+        <span class="cov5" title="3">pvc := corev1.PersistentVolumeClaim{
+                ObjectMeta: metav1.ObjectMeta{
+                        Name:   "data",
+                        Labels: utils.LabelsForEtcdCluster(cluster),
+                },
+                Spec: corev1.PersistentVolumeClaimSpec{
+                        AccessModes: []corev1.PersistentVolumeAccessMode{
+                                corev1.ReadWriteOnce,
+                        },
+                        Resources: corev1.VolumeResourceRequirements{
+                                Requests: corev1.ResourceList{
+                                        corev1.ResourceStorage: storageSize,
+                                },
+                        },
+                },
+        }
+
+        // Set storage class if specified
+        if cluster.Spec.Storage.StorageClassName != nil </span><span class="cov1" title="1">{
+                pvc.Spec.StorageClassName = cluster.Spec.Storage.StorageClassName
+        }</span>
+
+        <span class="cov5" title="3">return []corev1.PersistentVolumeClaim{pvc}</span>
+}
+
+// BuildClientService creates a client service for the EtcdCluster
+func BuildClientService(cluster *etcdv1alpha1.EtcdCluster) *corev1.Service <span class="cov1" title="1">{
+        labels := utils.LabelsForEtcdService(cluster, "client")
+        selectorLabels := utils.SelectorLabelsForEtcdCluster(cluster)
+
+        return &amp;corev1.Service{
+                ObjectMeta: metav1.ObjectMeta{
+                        Name:        fmt.Sprintf("%s-client", cluster.Name),
+                        Namespace:   cluster.Namespace,
+                        Labels:      labels,
+                        Annotations: utils.AnnotationsForEtcdCluster(cluster),
+                },
+                Spec: corev1.ServiceSpec{
+                        Type:     corev1.ServiceTypeClusterIP,
+                        Selector: selectorLabels,
+                        Ports: []corev1.ServicePort{
+                                {
+                                        Name:       "client",
+                                        Port:       utils.EtcdClientPort,
+                                        TargetPort: intstr.FromInt(utils.EtcdClientPort),
+                                        Protocol:   corev1.ProtocolTCP,
+                                },
+                        },
+                },
+        }
+}</span>
+
+// BuildPeerService creates a peer service for the EtcdCluster
+func BuildPeerService(cluster *etcdv1alpha1.EtcdCluster) *corev1.Service <span class="cov1" title="1">{
+        labels := utils.LabelsForEtcdService(cluster, "peer")
+        selectorLabels := utils.SelectorLabelsForEtcdCluster(cluster)
+
+        return &amp;corev1.Service{
+                ObjectMeta: metav1.ObjectMeta{
+                        Name:        fmt.Sprintf("%s-peer", cluster.Name),
+                        Namespace:   cluster.Namespace,
+                        Labels:      labels,
+                        Annotations: utils.AnnotationsForEtcdCluster(cluster),
+                },
+                Spec: corev1.ServiceSpec{
+                        Type:      corev1.ServiceTypeClusterIP,
+                        ClusterIP: corev1.ClusterIPNone, // Headless service
+                        Selector:  selectorLabels,
+                        Ports: []corev1.ServicePort{
+                                {
+                                        Name:       "peer",
+                                        Port:       utils.EtcdPeerPort,
+                                        TargetPort: intstr.FromInt(utils.EtcdPeerPort),
+                                        Protocol:   corev1.ProtocolTCP,
+                                },
+                        },
+                },
+        }
+}</span>
+
+// BuildConfigMap creates a ConfigMap for etcd configuration
+func BuildConfigMap(cluster *etcdv1alpha1.EtcdCluster) *corev1.ConfigMap <span class="cov1" title="1">{
+        labels := utils.LabelsForEtcdCluster(cluster)
+
+        return &amp;corev1.ConfigMap{
+                ObjectMeta: metav1.ObjectMeta{
+                        Name:        fmt.Sprintf("%s-config", cluster.Name),
+                        Namespace:   cluster.Namespace,
+                        Labels:      labels,
+                        Annotations: utils.AnnotationsForEtcdCluster(cluster),
+                },
+                Data: map[string]string{
+                        "etcd.conf": buildEtcdConfig(cluster),
+                },
+        }
+}</span>
+
+// buildEtcdConfig creates etcd configuration content
+func buildEtcdConfig(cluster *etcdv1alpha1.EtcdCluster) string <span class="cov1" title="1">{
+        config := fmt.Sprintf(`# etcd configuration for cluster %s
+name: $(ETCD_NAME)
+data-dir: %s
+listen-client-urls: http://0.0.0.0:%d
+listen-peer-urls: http://0.0.0.0:%d
+advertise-client-urls: http://$(ETCD_NAME).%s-peer.%s.svc.cluster.local:%d
+initial-advertise-peer-urls: http://$(ETCD_NAME).%s-peer.%s.svc.cluster.local:%d
+initial-cluster-state: new
+initial-cluster-token: %s
+initial-cluster: %s
+`,
+                cluster.Name,
+                utils.EtcdDataDir,
+                utils.EtcdClientPort,
+                utils.EtcdPeerPort,
+                cluster.Name, cluster.Namespace, utils.EtcdClientPort,
+                cluster.Name, cluster.Namespace, utils.EtcdPeerPort,
+                cluster.Name,
+                buildInitialCluster(cluster),
+        )
+
+        return config
+}</span>
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package utils
+
+import (
+        etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+)
+
+// LabelsForEtcdCluster returns the labels for selecting the resources
+// belonging to the given EtcdCluster CR name.
+func LabelsForEtcdCluster(cluster *etcdv1alpha1.EtcdCluster) map[string]string <span class="cov10" title="8">{
+        return map[string]string{
+                LabelAppName:      "etcd",
+                LabelAppInstance:  cluster.Name,
+                LabelAppComponent: "database",
+                LabelAppManagedBy: "etcd-operator",
+                LabelAppVersion:   cluster.Spec.Version,
+                LabelEtcdCluster:  cluster.Name,
+        }
+}</span>
+
+// LabelsForEtcdMember returns the labels for selecting the resources
+// belonging to the given EtcdCluster member.
+func LabelsForEtcdMember(cluster *etcdv1alpha1.EtcdCluster, memberName string) map[string]string <span class="cov1" title="1">{
+        labels := LabelsForEtcdCluster(cluster)
+        labels[LabelEtcdMember] = memberName
+        return labels
+}</span>
+
+// LabelsForEtcdService returns the labels for etcd service
+func LabelsForEtcdService(cluster *etcdv1alpha1.EtcdCluster, serviceType string) map[string]string <span class="cov4" title="2">{
+        labels := LabelsForEtcdCluster(cluster)
+        labels[LabelAppComponent] = serviceType // "client" or "peer"
+        return labels
+}</span>
+
+// SelectorLabelsForEtcdCluster returns the selector labels for EtcdCluster
+func SelectorLabelsForEtcdCluster(cluster *etcdv1alpha1.EtcdCluster) map[string]string <span class="cov4" title="2">{
+        return map[string]string{
+                LabelAppName:     "etcd",
+                LabelAppInstance: cluster.Name,
+                LabelEtcdCluster: cluster.Name,
+        }
+}</span>
+
+// MergeLabels merges multiple label maps
+func MergeLabels(labelMaps ...map[string]string) map[string]string <span class="cov4" title="2">{
+        result := make(map[string]string)
+        for _, labelMap := range labelMaps </span><span class="cov7" title="5">{
+                for k, v := range labelMap </span><span class="cov8" title="6">{
+                        result[k] = v
+                }</span>
+        }
+        <span class="cov4" title="2">return result</span>
+}
+
+// AnnotationsForEtcdCluster returns the annotations for EtcdCluster resources
+func AnnotationsForEtcdCluster(cluster *etcdv1alpha1.EtcdCluster) map[string]string <span class="cov4" title="2">{
+        annotations := make(map[string]string)
+
+        // Copy existing annotations from the cluster
+        for k, v := range cluster.Annotations </span><span class="cov1" title="1">{
+                annotations[k] = v
+        }</span>
+
+        <span class="cov4" title="2">return annotations</span>
+}
+
+// MergeAnnotations merges multiple annotation maps
+func MergeAnnotations(annotationMaps ...map[string]string) map[string]string <span class="cov1" title="1">{
+        result := make(map[string]string)
+        for _, annotationMap := range annotationMaps </span><span class="cov4" title="2">{
+                for k, v := range annotationMap </span><span class="cov7" title="4">{
+                        result[k] = v
+                }</span>
+        }
+        <span class="cov1" title="1">return result</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
