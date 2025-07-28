@@ -26,7 +26,7 @@ const (
 	DefaultEtcdVersion = "3.5.9"
 
 	// DefaultEtcdRepository is the default etcd image repository
-	DefaultEtcdRepository = "quay.io/coreos/etcd"
+	DefaultEtcdRepository = "bitnami/etcd"
 
 	// DefaultClusterSize is the default cluster size
 	DefaultClusterSize = 3

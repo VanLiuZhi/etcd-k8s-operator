@@ -71,6 +71,8 @@
   - [x] 状态机实现
   - [x] 资源管理器 (StatefulSet, Service, ConfigMap)
   - [x] 基础健康检查
+  - [x] Bitnami etcd 镜像完整支持
+  - [x] 网络调试工具集成 (netshoot sidecar)
 - [x] **完整测试系统** - 多层次测试架构和自动化测试
   - [x] 单元测试框架 (testify + Go test)
   - [x] 集成测试环境 (Ginkgo + envtest)
@@ -92,19 +94,45 @@
 
 ## 🎯 当前工作重点
 
-### 本周目标 (第4周)
+### 本周目标 (第4周) ✅ 已完成
 - [x] 实现 EtcdCluster 控制器基础框架
 - [x] 完成 StatefulSet 和 Service 管理逻辑
 - [x] 添加基础的集群状态检查
 - [x] 编写完整测试系统
 - [x] 创建自动化测试脚本
 - [x] 编写测试文档和故障排除指南
+- [x] **解决 Bitnami etcd 集群组建问题** 🎉
+- [x] **集成网络调试工具 (netshoot sidecar)** 🔧
 
 ### 下周计划 (第5周)
 - [ ] 实现 TLS 安全配置和证书管理
 - [ ] 添加 etcd 客户端健康检查
 - [ ] 实现高级扩缩容功能 (etcd 成员管理)
 - [ ] 完善错误处理和事件记录
+- [ ] 多节点集群支持 (3/5/7 节点)
+
+## 🏆 重要技术成就
+
+### 🎯 Bitnami etcd 集群组建问题解决 (第4周)
+
+**问题描述**: Bitnami etcd 镜像在 Kubernetes 环境中无法正确组建集群，出现 "MY_STS_NAME: unbound variable" 错误和 DNS 解析问题。
+
+**解决方案**:
+1. **环境变量修复**: 添加了 Bitnami etcd 必需的环境变量
+   - `ETCD_ON_K8S=yes` - 启用 Kubernetes 集群模式
+   - `ETCD_CLUSTER_DOMAIN` - 指定 headless service 域名
+   - `MY_STS_NAME` - StatefulSet 名称，避免脚本错误
+
+2. **调试工具集成**: 添加 netshoot sidecar 容器用于网络调试
+   - 提供完整的网络诊断工具集
+   - 支持 DNS 解析测试和网络连通性检查
+   - 资源优化：CPU 50m-100m，内存 64Mi-128Mi
+
+**技术影响**:
+- ✅ 解决了 Bitnami etcd 在 Kind 集群中的启动问题
+- ✅ 提升了网络问题的调试能力
+- ✅ 增强了对不同 etcd 镜像的兼容性
+- ✅ 为后续多节点集群奠定了基础
 
 ## 📋 功能实现优先级
 

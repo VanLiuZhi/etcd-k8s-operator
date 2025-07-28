@@ -18,6 +18,7 @@ package k8s
 
 import (
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -67,10 +68,32 @@ func BuildStatefulSet(cluster *etcdv1alpha1.EtcdCluster) *appsv1.StatefulSet {
 
 // buildPodSpec creates the pod specification for etcd
 func buildPodSpec(cluster *etcdv1alpha1.EtcdCluster) corev1.PodSpec {
+	containers := []corev1.Container{
+		buildEtcdContainer(cluster),
+	}
+
+	// Add netshoot sidecar container for debugging if using Bitnami image
+	if strings.Contains(cluster.Spec.Repository, "bitnami") {
+		netshootContainer := corev1.Container{
+			Name:    "netshoot",
+			Image:   "nicolaka/netshoot:latest",
+			Command: []string{"sleep", "3600"},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("50m"),
+					corev1.ResourceMemory: resource.MustParse("64Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("100m"),
+					corev1.ResourceMemory: resource.MustParse("128Mi"),
+				},
+			},
+		}
+		containers = append(containers, netshootContainer)
+	}
+
 	return corev1.PodSpec{
-		Containers: []corev1.Container{
-			buildEtcdContainer(cluster),
-		},
+		Containers:                    containers,
 		RestartPolicy:                 corev1.RestartPolicyAlways,
 		TerminationGracePeriodSeconds: &[]int64{30}[0],
 		DNSPolicy:                     corev1.DNSClusterFirst,
@@ -106,31 +129,9 @@ func buildEtcdContainer(cluster *etcdv1alpha1.EtcdCluster) corev1.Container {
 				MountPath: utils.EtcdDataDir,
 			},
 		},
-		LivenessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path: "/health",
-					Port: intstr.FromInt(utils.EtcdClientPort),
-				},
-			},
-			InitialDelaySeconds: 30,
-			PeriodSeconds:       10,
-			TimeoutSeconds:      5,
-			FailureThreshold:    3,
-		},
-		ReadinessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path: "/health",
-					Port: intstr.FromInt(utils.EtcdClientPort),
-				},
-			},
-			InitialDelaySeconds: 10,
-			PeriodSeconds:       5,
-			TimeoutSeconds:      3,
-			FailureThreshold:    3,
-		},
-		Resources: buildResourceRequirements(cluster),
+		LivenessProbe:  buildLivenessProbe(cluster),
+		ReadinessProbe: buildReadinessProbe(cluster),
+		Resources:      buildResourceRequirements(cluster),
 	}
 
 	return container
@@ -138,7 +139,7 @@ func buildEtcdContainer(cluster *etcdv1alpha1.EtcdCluster) corev1.Container {
 
 // buildEtcdEnvironment creates environment variables for etcd
 func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar {
-	return []corev1.EnvVar{
+	envVars := []corev1.EnvVar{
 		{
 			Name: "ETCD_NAME",
 			ValueFrom: &corev1.EnvVarSource{
@@ -180,6 +181,98 @@ func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar {
 			Value: buildInitialCluster(cluster),
 		},
 	}
+
+	// Add Bitnami-specific environment variables if using Bitnami image
+	if strings.Contains(cluster.Spec.Repository, "bitnami") {
+		envVars = append(envVars, []corev1.EnvVar{
+			{
+				Name:  "ALLOW_NONE_AUTHENTICATION",
+				Value: "yes",
+			},
+			{
+				Name:  "ETCD_ROOT_PASSWORD",
+				Value: "",
+			},
+			{
+				Name:  "ETCD_ON_K8S",
+				Value: "yes",
+			},
+			{
+				Name:  "ETCD_CLUSTER_DOMAIN",
+				Value: fmt.Sprintf("%s-peer.%s.svc.cluster.local", cluster.Name, cluster.Namespace),
+			},
+			{
+				Name:  "MY_STS_NAME",
+				Value: cluster.Name,
+			},
+		}...)
+	}
+
+	return envVars
+}
+
+// buildLivenessProbe creates liveness probe for etcd container
+func buildLivenessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
+	if strings.Contains(cluster.Spec.Repository, "bitnami") {
+		// Use Bitnami's healthcheck script
+		return &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				Exec: &corev1.ExecAction{
+					Command: []string{"/opt/bitnami/scripts/etcd/healthcheck.sh"},
+				},
+			},
+			InitialDelaySeconds: 60, // Bitnami etcd takes longer to start
+			PeriodSeconds:       10,
+			TimeoutSeconds:      5,
+			FailureThreshold:    3,
+		}
+	}
+
+	// Use standard HTTP health check for other images
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/health",
+				Port: intstr.FromInt(utils.EtcdClientPort),
+			},
+		},
+		InitialDelaySeconds: 30,
+		PeriodSeconds:       10,
+		TimeoutSeconds:      5,
+		FailureThreshold:    3,
+	}
+}
+
+// buildReadinessProbe creates readiness probe for etcd container
+func buildReadinessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
+	if strings.Contains(cluster.Spec.Repository, "bitnami") {
+		// Use Bitnami's healthcheck script
+		return &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				Exec: &corev1.ExecAction{
+					Command: []string{"/opt/bitnami/scripts/etcd/healthcheck.sh"},
+				},
+			},
+			InitialDelaySeconds: 30, // Shorter delay for readiness
+			PeriodSeconds:       5,
+			TimeoutSeconds:      3,
+			FailureThreshold:    3,
+		}
+	}
+
+	// Use standard HTTP health check for other images
+	return &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/health",
+				Port: intstr.FromInt(utils.EtcdClientPort),
+			},
+		},
+		InitialDelaySeconds: 10,
+		PeriodSeconds:       5,
+		TimeoutSeconds:      3,
+		FailureThreshold:    3,
+	}
 }
 
 // buildInitialCluster creates the initial cluster configuration
@@ -191,7 +284,7 @@ func buildInitialCluster(cluster *etcdv1alpha1.EtcdCluster) string {
 			memberName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort)
 		members = append(members, fmt.Sprintf("%s=%s", memberName, memberURL))
 	}
-	return fmt.Sprintf("%v", members)
+	return strings.Join(members, ",")
 }
 
 // buildResourceRequirements creates resource requirements for etcd container

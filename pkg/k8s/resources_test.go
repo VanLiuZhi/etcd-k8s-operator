@@ -109,11 +109,68 @@ func (suite *ResourcesTestSuite) TestStatefulSetBuilder() {
 	assert.Equal(suite.T(), "new", envMap["ETCD_INITIAL_CLUSTER_STATE"])
 	assert.Equal(suite.T(), suite.cluster.Name, envMap["ETCD_INITIAL_CLUSTER_TOKEN"])
 
+	// 验证健康检查配置
+	assert.NotNil(suite.T(), container.LivenessProbe)
+	assert.NotNil(suite.T(), container.ReadinessProbe)
+
+	// 对于非 Bitnami 镜像，应该使用 HTTP 健康检查
+	assert.NotNil(suite.T(), container.LivenessProbe.HTTPGet)
+	assert.Equal(suite.T(), "/health", container.LivenessProbe.HTTPGet.Path)
+	assert.NotNil(suite.T(), container.ReadinessProbe.HTTPGet)
+	assert.Equal(suite.T(), "/health", container.ReadinessProbe.HTTPGet.Path)
+
 	// 验证存储卷声明模板
 	assert.Len(suite.T(), sts.Spec.VolumeClaimTemplates, 1)
 	pvc := sts.Spec.VolumeClaimTemplates[0]
 	assert.Equal(suite.T(), "data", pvc.Name)
 	assert.Equal(suite.T(), resource.MustParse("10Gi"), pvc.Spec.Resources.Requests[corev1.ResourceStorage])
+}
+
+// TestBitnamiStatefulSetBuilder 测试 Bitnami 镜像的 StatefulSet 构建器
+func (suite *ResourcesTestSuite) TestBitnamiStatefulSetBuilder() {
+	// 创建使用 Bitnami 镜像的集群
+	bitnamiCluster := &etcdv1alpha1.EtcdCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-bitnami-cluster",
+			Namespace: "default",
+		},
+		Spec: etcdv1alpha1.EtcdClusterSpec{
+			Size:       3,
+			Version:    "3.5.9",
+			Repository: "bitnami/etcd",
+			Storage: etcdv1alpha1.EtcdStorageSpec{
+				Size: resource.MustParse("10Gi"),
+			},
+		},
+	}
+
+	sts := BuildStatefulSet(bitnamiCluster)
+	container := sts.Spec.Template.Spec.Containers[0]
+
+	// 验证 Bitnami 镜像使用 exec 健康检查
+	assert.NotNil(suite.T(), container.LivenessProbe)
+	assert.NotNil(suite.T(), container.ReadinessProbe)
+
+	// 应该使用 exec 而不是 HTTP
+	assert.NotNil(suite.T(), container.LivenessProbe.Exec)
+	assert.Nil(suite.T(), container.LivenessProbe.HTTPGet)
+	assert.Equal(suite.T(), []string{"/opt/bitnami/scripts/etcd/healthcheck.sh"}, container.LivenessProbe.Exec.Command)
+
+	assert.NotNil(suite.T(), container.ReadinessProbe.Exec)
+	assert.Nil(suite.T(), container.ReadinessProbe.HTTPGet)
+	assert.Equal(suite.T(), []string{"/opt/bitnami/scripts/etcd/healthcheck.sh"}, container.ReadinessProbe.Exec.Command)
+
+	// 验证 Bitnami 特定的环境变量
+	envMap := make(map[string]string)
+	for _, env := range container.Env {
+		if env.Value != "" {
+			envMap[env.Name] = env.Value
+		}
+	}
+	assert.Equal(suite.T(), "yes", envMap["ALLOW_NONE_AUTHENTICATION"])
+	assert.Equal(suite.T(), "yes", envMap["ETCD_ON_K8S"])
+	assert.Equal(suite.T(), "test-bitnami-cluster-peer.default.svc.cluster.local", envMap["ETCD_CLUSTER_DOMAIN"])
+	assert.Equal(suite.T(), "test-bitnami-cluster", envMap["MY_STS_NAME"])
 }
 
 // TestClientServiceBuilder 测试客户端服务构建器

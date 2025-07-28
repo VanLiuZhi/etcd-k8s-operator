@@ -553,6 +553,10 @@ func (r *EtcdClusterReconciler) checkClusterReady(ctx context.Context, cluster *
 		Namespace: cluster.Namespace,
 	}, sts)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			// StatefulSet 还没有创建，返回 false 但不报错
+			return false, nil
+		}
 		return false, err
 	}
 
