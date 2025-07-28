@@ -14,7 +14,7 @@ type EtcdClusterSpec struct {
     // 基础配置
     Size        int32  `json:"size,omitempty"`        // 集群大小 (1,3,5,7,9)
     Version     string `json:"version,omitempty"`     // etcd 版本
-    Repository  string `json:"repository,omitempty"`  // 镜像仓库
+    Repository  string `json:"repository,omitempty"`  // 镜像仓库 (推荐: quay.io/coreos/etcd)
     
     // 存储配置
     Storage     EtcdStorageSpec   `json:"storage,omitempty"`
@@ -335,6 +335,31 @@ groups:
 3. **端到端测试**: 完整场景测试
 4. **性能测试**: 压力测试和基准测试
 
+### 镜像配置
+
+支持多种 etcd 镜像，推荐使用官方镜像：
+
+```yaml
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: example-cluster
+spec:
+  size: 3
+  repository: "quay.io/coreos/etcd"  # 推荐使用官方镜像
+  version: "v3.5.21"
+```
+
+**支持的镜像**：
+- `quay.io/coreos/etcd:v3.5.21` (推荐，官方镜像)
+- `bitnami/etcd:3.5.9` (支持，但多节点集群有限制)
+- `gcr.io/etcd-development/etcd:v3.5.9` (支持)
+
+**镜像选择建议**：
+- **生产环境**: 使用官方 `quay.io/coreos/etcd` 镜像，稳定性和兼容性最佳
+- **开发测试**: 可使用 Bitnami 镜像，但注意多节点集群启动限制
+- **离线环境**: 可使用 `gcr.io/etcd-development/etcd` 镜像
+
 ### 测试环境
 - **Kind**: 本地开发测试
 - **CI/CD**: 自动化测试流水线
@@ -342,4 +367,4 @@ groups:
 
 ---
 
-**文档版本**: v1.0 | **最后更新**: 2025-07-21
+**文档版本**: v1.1 | **最后更新**: 2025-07-28

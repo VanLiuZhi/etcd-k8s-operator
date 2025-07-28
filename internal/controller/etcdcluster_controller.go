@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+	etcdclient "github.com/your-org/etcd-k8s-operator/pkg/etcd"
 	"github.com/your-org/etcd-k8s-operator/pkg/k8s"
 	"github.com/your-org/etcd-k8s-operator/pkg/utils"
 )
@@ -169,7 +170,12 @@ func (r *EtcdClusterReconciler) handleCreating(ctx context.Context, cluster *etc
 		return r.updateStatusWithError(ctx, cluster, etcdv1alpha1.EtcdClusterPhaseFailed, err)
 	}
 
-	// 2. 检查集群是否就绪
+	// 2. 对于多节点集群，使用渐进式启动策略
+	if cluster.Spec.Size > 1 {
+		return r.handleMultiNodeClusterCreation(ctx, cluster)
+	}
+
+	// 3. 单节点集群的处理逻辑
 	ready, err := r.checkClusterReady(ctx, cluster)
 	if err != nil {
 		logger.Error(err, "Failed to check cluster readiness")
@@ -192,6 +198,85 @@ func (r *EtcdClusterReconciler) handleCreating(ctx context.Context, cluster *etc
 
 	// 继续等待
 	logger.Info("Waiting for cluster to be ready")
+	return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+}
+
+// handleMultiNodeClusterCreation handles multi-node cluster creation with progressive startup
+func (r *EtcdClusterReconciler) handleMultiNodeClusterCreation(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// 获取当前 StatefulSet 状态
+	sts := &appsv1.StatefulSet{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      cluster.Name,
+		Namespace: cluster.Namespace,
+	}, sts)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// StatefulSet 还没有创建，返回等待
+			return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// 检查当前就绪的副本数
+	readyReplicas := sts.Status.ReadyReplicas
+	desiredSize := cluster.Spec.Size
+	currentReplicas := *sts.Spec.Replicas
+
+	logger.Info("Multi-node cluster creation progress",
+		"readyReplicas", readyReplicas,
+		"desiredSize", desiredSize,
+		"currentReplicas", currentReplicas)
+
+	// 如果所有副本都已就绪，集群创建完成
+	if readyReplicas == desiredSize {
+		cluster.Status.Phase = etcdv1alpha1.EtcdClusterPhaseRunning
+		r.setCondition(cluster, utils.ConditionTypeReady, metav1.ConditionTrue, utils.ReasonRunning, "Multi-node etcd cluster is running")
+		r.setCondition(cluster, utils.ConditionTypeProgressing, metav1.ConditionFalse, utils.ReasonRunning, "Multi-node etcd cluster creation completed")
+
+		if err := r.updateClusterStatus(ctx, cluster); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		r.Recorder.Event(cluster, corev1.EventTypeNormal, utils.EventReasonClusterCreated,
+			fmt.Sprintf("Multi-node etcd cluster with %d nodes created successfully", desiredSize))
+		return ctrl.Result{RequeueAfter: utils.DefaultHealthCheckInterval}, nil
+	}
+
+	// 实现分阶段启动策略
+	// 1. 首先只启动第一个节点
+	// 2. 等第一个节点就绪后，再逐步启动其他节点
+
+	if currentReplicas == 0 {
+		// 第一阶段：启动第一个节点
+		logger.Info("Starting first node of multi-node cluster")
+		*sts.Spec.Replicas = 1
+		if err := r.Update(ctx, sts); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+	}
+
+	if readyReplicas == 1 && currentReplicas == 1 && desiredSize > 1 {
+		// 第二阶段：第一个节点就绪后，启动所有节点
+		logger.Info("First node ready, starting all nodes")
+		*sts.Spec.Replicas = desiredSize
+		if err := r.Update(ctx, sts); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+	}
+
+	// 更新状态信息
+	r.setCondition(cluster, utils.ConditionTypeProgressing, metav1.ConditionTrue, utils.ReasonCreating,
+		fmt.Sprintf("Creating multi-node cluster: %d/%d nodes ready", readyReplicas, desiredSize))
+
+	if err := r.updateClusterStatus(ctx, cluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// 继续等待更多节点就绪
 	return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
 }
 
@@ -588,6 +673,12 @@ func (r *EtcdClusterReconciler) updateClusterStatus(ctx context.Context, cluster
 	// 更新副本数状态
 	cluster.Status.ReadyReplicas = sts.Status.ReadyReplicas
 
+	// 更新成员状态
+	if err := r.updateMemberStatus(ctx, cluster, sts); err != nil {
+		// 记录错误但不阻止状态更新
+		log.FromContext(ctx).Error(err, "Failed to update member status")
+	}
+
 	// 更新客户端端点
 	if sts.Status.ReadyReplicas > 0 {
 		endpoints := make([]string, 0, sts.Status.ReadyReplicas)
@@ -604,6 +695,63 @@ func (r *EtcdClusterReconciler) updateClusterStatus(ctx context.Context, cluster
 	cluster.Status.LastUpdateTime = &now
 
 	return r.Status().Update(ctx, cluster)
+}
+
+// updateMemberStatus updates the member status information
+func (r *EtcdClusterReconciler) updateMemberStatus(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, sts *appsv1.StatefulSet) error {
+	logger := log.FromContext(ctx)
+
+	// 获取所有 Pod 的状态
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList, client.InNamespace(cluster.Namespace), client.MatchingLabels{
+		"app.kubernetes.io/name":     "etcd",
+		"app.kubernetes.io/instance": cluster.Name,
+	}); err != nil {
+		return fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	// 构建成员状态列表
+	members := make([]etcdv1alpha1.EtcdMember, 0, cluster.Spec.Size)
+
+	for i := int32(0); i < cluster.Spec.Size; i++ {
+		memberName := fmt.Sprintf("%s-%d", cluster.Name, i)
+		member := etcdv1alpha1.EtcdMember{
+			Name:      memberName,
+			PeerURL:   fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d", memberName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort),
+			ClientURL: fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d", memberName, cluster.Name, cluster.Namespace, utils.EtcdClientPort),
+			Ready:     false,
+		}
+
+		// 检查对应的 Pod 是否就绪
+		for _, pod := range podList.Items {
+			if pod.Name == memberName {
+				// 检查 Pod 是否就绪
+				for _, condition := range pod.Status.Conditions {
+					if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+						member.Ready = true
+						break
+					}
+				}
+				break
+			}
+		}
+
+		members = append(members, member)
+	}
+
+	cluster.Status.Members = members
+
+	logger.V(1).Info("Updated member status", "members", len(members), "ready", func() int {
+		count := 0
+		for _, m := range members {
+			if m.Ready {
+				count++
+			}
+		}
+		return count
+	}())
+
+	return nil
 }
 
 // needsScaling checks if the cluster needs scaling
@@ -636,7 +784,9 @@ func (r *EtcdClusterReconciler) performHealthCheck(ctx context.Context, cluster 
 
 // handleScaleUp handles scaling up the cluster
 func (r *EtcdClusterReconciler) handleScaleUp(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
-	// 更新 StatefulSet 副本数
+	logger := log.FromContext(ctx)
+
+	// 获取当前 StatefulSet
 	sts := &appsv1.StatefulSet{}
 	if err := r.Get(ctx, types.NamespacedName{
 		Name:      cluster.Name,
@@ -645,11 +795,26 @@ func (r *EtcdClusterReconciler) handleScaleUp(ctx context.Context, cluster *etcd
 		return ctrl.Result{}, err
 	}
 
-	if *sts.Spec.Replicas < cluster.Spec.Size {
-		*sts.Spec.Replicas = cluster.Spec.Size
+	currentReplicas := *sts.Spec.Replicas
+	desiredReplicas := cluster.Spec.Size
+
+	logger.Info("Scaling up cluster", "current", currentReplicas, "desired", desiredReplicas)
+
+	// 对于多节点集群，我们需要逐步添加成员
+	if currentReplicas > 1 && desiredReplicas > currentReplicas {
+		// 尝试使用 etcd 客户端添加成员
+		if err := r.addEtcdMember(ctx, cluster, currentReplicas); err != nil {
+			logger.Error(err, "Failed to add etcd member, falling back to StatefulSet scaling")
+		}
+	}
+
+	// 更新 StatefulSet 副本数
+	if currentReplicas < desiredReplicas {
+		*sts.Spec.Replicas = desiredReplicas
 		if err := r.Update(ctx, sts); err != nil {
 			return ctrl.Result{}, err
 		}
+		logger.Info("Updated StatefulSet replicas", "replicas", desiredReplicas)
 	}
 
 	// 等待新副本就绪
@@ -683,6 +848,96 @@ func (r *EtcdClusterReconciler) cleanupResources(ctx context.Context, cluster *e
 	// 清理逻辑可以在这里实现
 	// 例如：清理 PVC、备份等
 	return nil
+}
+
+// addEtcdMember adds a new member to the etcd cluster
+func (r *EtcdClusterReconciler) addEtcdMember(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, memberIndex int32) error {
+	logger := log.FromContext(ctx)
+
+	// 创建 etcd 客户端
+	etcdClient, err := r.createEtcdClient(cluster)
+	if err != nil {
+		return fmt.Errorf("failed to create etcd client: %w", err)
+	}
+	defer etcdClient.Close()
+
+	// 构建新成员的 peer URL
+	memberName := fmt.Sprintf("%s-%d", cluster.Name, memberIndex)
+	peerURL := fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d",
+		memberName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort)
+
+	logger.Info("Adding etcd member", "name", memberName, "peerURL", peerURL)
+
+	// 添加成员到 etcd 集群
+	_, err = etcdClient.AddMember(ctx, peerURL)
+	if err != nil {
+		return fmt.Errorf("failed to add member %s: %w", memberName, err)
+	}
+
+	logger.Info("Successfully added etcd member", "name", memberName)
+	return nil
+}
+
+// removeEtcdMember removes a member from the etcd cluster
+func (r *EtcdClusterReconciler) removeEtcdMember(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, memberName string) error {
+	logger := log.FromContext(ctx)
+
+	// 创建 etcd 客户端
+	etcdClient, err := r.createEtcdClient(cluster)
+	if err != nil {
+		return fmt.Errorf("failed to create etcd client: %w", err)
+	}
+	defer etcdClient.Close()
+
+	// 获取集群成员列表
+	members, err := etcdClient.GetClusterMembers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get cluster members: %w", err)
+	}
+
+	// 查找要移除的成员
+	var memberID uint64
+	found := false
+	for _, member := range members {
+		if member.Name == memberName {
+			// 将十六进制字符串转换为 uint64
+			if _, err := fmt.Sscanf(member.ID, "%x", &memberID); err != nil {
+				return fmt.Errorf("failed to parse member ID %s: %w", member.ID, err)
+			}
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		logger.Info("Member not found in etcd cluster", "name", memberName)
+		return nil // 成员已经不存在，认为成功
+	}
+
+	logger.Info("Removing etcd member", "name", memberName, "id", memberID)
+
+	// 从 etcd 集群中移除成员
+	if err := etcdClient.RemoveMember(ctx, memberID); err != nil {
+		return fmt.Errorf("failed to remove member %s: %w", memberName, err)
+	}
+
+	logger.Info("Successfully removed etcd member", "name", memberName)
+	return nil
+}
+
+// createEtcdClient creates an etcd client for the cluster
+func (r *EtcdClusterReconciler) createEtcdClient(cluster *etcdv1alpha1.EtcdCluster) (*etcdclient.Client, error) {
+	// 使用集群的客户端端点
+	endpoints := cluster.Status.ClientEndpoints
+	if len(endpoints) == 0 {
+		// 如果状态中没有端点，构建默认端点
+		endpoints = []string{
+			fmt.Sprintf("http://%s-0.%s-peer.%s.svc.cluster.local:%d",
+				cluster.Name, cluster.Name, cluster.Namespace, utils.EtcdClientPort),
+		}
+	}
+
+	return etcdclient.NewClient(endpoints)
 }
 
 // SetupWithManager sets up the controller with the Manager.

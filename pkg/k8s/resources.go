@@ -170,7 +170,7 @@ func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar {
 		},
 		{
 			Name:  "ETCD_INITIAL_CLUSTER_STATE",
-			Value: "new",
+			Value: "new", // 对于新集群，所有节点都使用 "new"
 		},
 		{
 			Name:  "ETCD_INITIAL_CLUSTER_TOKEN",
@@ -184,7 +184,7 @@ func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar {
 
 	// Add Bitnami-specific environment variables if using Bitnami image
 	if strings.Contains(cluster.Spec.Repository, "bitnami") {
-		envVars = append(envVars, []corev1.EnvVar{
+		bitnamiEnvVars := []corev1.EnvVar{
 			{
 				Name:  "ALLOW_NONE_AUTHENTICATION",
 				Value: "yes",
@@ -194,18 +194,44 @@ func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar {
 				Value: "",
 			},
 			{
-				Name:  "ETCD_ON_K8S",
-				Value: "yes",
-			},
-			{
-				Name:  "ETCD_CLUSTER_DOMAIN",
-				Value: fmt.Sprintf("%s-peer.%s.svc.cluster.local", cluster.Name, cluster.Namespace),
-			},
-			{
 				Name:  "MY_STS_NAME",
 				Value: cluster.Name,
 			},
-		}...)
+		}
+
+		// For multi-node clusters, we need special handling
+		if cluster.Spec.Size > 1 {
+			// Use a different approach for multi-node clusters
+			bitnamiEnvVars = append(bitnamiEnvVars, []corev1.EnvVar{
+				{
+					Name:  "ETCD_ON_K8S",
+					Value: "yes",
+				},
+				{
+					Name:  "ETCD_CLUSTER_DOMAIN",
+					Value: fmt.Sprintf("%s-peer.%s.svc.cluster.local", cluster.Name, cluster.Namespace),
+				},
+				// Skip the headless service domain check for multi-node clusters
+				{
+					Name:  "ETCD_SKIP_DOMAIN_CHECK",
+					Value: "yes",
+				},
+			}...)
+		} else {
+			// Single node configuration
+			bitnamiEnvVars = append(bitnamiEnvVars, []corev1.EnvVar{
+				{
+					Name:  "ETCD_ON_K8S",
+					Value: "yes",
+				},
+				{
+					Name:  "ETCD_CLUSTER_DOMAIN",
+					Value: fmt.Sprintf("%s-peer.%s.svc.cluster.local", cluster.Name, cluster.Namespace),
+				},
+			}...)
+		}
+
+		envVars = append(envVars, bitnamiEnvVars...)
 	}
 
 	return envVars
@@ -246,7 +272,24 @@ func buildLivenessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
 // buildReadinessProbe creates readiness probe for etcd container
 func buildReadinessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
 	if strings.Contains(cluster.Spec.Repository, "bitnami") {
-		// Use Bitnami's healthcheck script
+		// For multi-node clusters, use a more lenient readiness probe
+		if cluster.Spec.Size > 1 {
+			// Use TCP probe to allow Pod to become ready faster
+			// This helps with DNS record creation for headless service
+			return &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.FromInt(utils.EtcdClientPort),
+					},
+				},
+				InitialDelaySeconds: 15, // Shorter delay for multi-node
+				PeriodSeconds:       5,
+				TimeoutSeconds:      3,
+				FailureThreshold:    5, // More tolerant for multi-node startup
+			}
+		}
+
+		// Use Bitnami's healthcheck script for single-node clusters
 		return &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				Exec: &corev1.ExecAction{
