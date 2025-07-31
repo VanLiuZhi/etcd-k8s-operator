@@ -1,0 +1,12 @@
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: test-scaling-cluster
+  namespace: test-scaling
+spec:
+  size: 1
+  version: "v3.5.21"
+  repository: "quay.io/coreos/etcd"
+  storage:
+    size: "1Gi"
+    storageClassName: "standard"

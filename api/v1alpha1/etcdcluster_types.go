@@ -107,9 +107,9 @@ type EtcdClusterSpec struct {
 	// +kubebuilder:default=3
 	Size int32 `json:"size,omitempty"`
 
-	// Version is the etcd version to use
-	// +kubebuilder:validation:Pattern=^3\.[0-9]+\.[0-9]+$
-	// +kubebuilder:default="3.5.9"
+	// Version is the etcd version to use (supports both "3.5.21" and "v3.5.21" formats)
+	// +kubebuilder:validation:Pattern=^v?3\.[0-9]+\.[0-9]+$
+	// +kubebuilder:default="v3.5.21"
 	Version string `json:"version,omitempty"`
 
 	// Repository is the container image repository

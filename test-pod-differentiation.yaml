@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: test-pod-diff
+  namespace: test-scaling
+spec:
+  serviceName: test-pod-diff-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: test-pod-diff
+  template:
+    metadata:
+      labels:
+        app: test-pod-diff
+    spec:
+      initContainers:
+      - name: config-generator
+        image: busybox:1.35
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          #!/bin/sh
+          set -e
+          
+          # 获取 Pod 名称和索引
+          HOSTNAME=$(hostname)
+          POD_INDEX=$(echo $HOSTNAME | sed 's/.*-//')
+          
+          echo "Pod name: $HOSTNAME"
+          echo "Pod index: $POD_INDEX"
+          
+          # 创建配置目录
+          mkdir -p /shared/config
+          
+          # 根据 Pod 索引生成不同的配置
+          if [ "$POD_INDEX" = "0" ]; then
+            cat > /shared/config/app.conf << EOF
+          # Configuration for first node
+          node_type: primary
+          node_index: $POD_INDEX
+          cluster_state: new
+          initial_cluster: test-pod-diff-0=http://test-pod-diff-0:2380
+          EOF
+          else
+            # 构建集群配置
+            CLUSTER_CONFIG=""
+            for i in $(seq 0 $POD_INDEX); do
+              if [ -n "$CLUSTER_CONFIG" ]; then
+                CLUSTER_CONFIG="$CLUSTER_CONFIG,"
+              fi
+              CLUSTER_CONFIG="${CLUSTER_CONFIG}test-pod-diff-$i=http://test-pod-diff-$i:2380"
+            done
+            
+            cat > /shared/config/app.conf << EOF
+          # Configuration for joining node
+          node_type: secondary
+          node_index: $POD_INDEX
+          cluster_state: existing
+          initial_cluster: $CLUSTER_CONFIG
+          EOF
+          fi
+          
+          echo "Generated configuration:"
+          cat /shared/config/app.conf
+          echo "Init container completed"
+        volumeMounts:
+        - name: shared-config
+          mountPath: /shared
+      containers:
+      - name: app
+        image: busybox:1.35
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          echo "Starting application..."
+          echo "Pod name: $(hostname)"
+          echo "Configuration file content:"
+          cat /shared/config/app.conf
+          echo "Application started with differentiated config"
+          # 保持运行以便观察
+          while true; do
+            echo "App running with config: $(grep node_type /shared/config/app.conf)"
+            sleep 30
+          done
+        volumeMounts:
+        - name: shared-config
+          mountPath: /shared
+      volumes:
+      - name: shared-config
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: test-pod-diff-headless
+  namespace: test-scaling
+spec:
+  clusterIP: None
+  selector:
+    app: test-pod-diff
+  ports:
+  - port: 2380
+    name: peer

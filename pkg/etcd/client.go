@@ -38,8 +38,12 @@ func (c *Client) Close() error {
 // NewClient creates a new etcd client
 func NewClient(endpoints []string) (*Client, error) {
 	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   endpoints,
-		DialTimeout: 5 * time.Second,
+		Endpoints:            endpoints,
+		DialTimeout:          5 * time.Second,
+		DialKeepAliveTime:    30 * time.Second,
+		DialKeepAliveTimeout: 5 * time.Second,
+		MaxCallSendMsgSize:   2 * 1024 * 1024,
+		MaxCallRecvMsgSize:   4 * 1024 * 1024,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create etcd client: %w", err)
@@ -50,6 +54,10 @@ func NewClient(endpoints []string) (*Client, error) {
 
 // GetClusterMembers returns the list of cluster members
 func (c *Client) GetClusterMembers(ctx context.Context) ([]etcdv1alpha1.EtcdMember, error) {
+	// 创建带超时的上下文
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	resp, err := c.MemberList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list members: %w", err)
@@ -81,6 +89,10 @@ func (c *Client) GetClusterMembers(ctx context.Context) ([]etcdv1alpha1.EtcdMemb
 
 // AddMember adds a new member to the etcd cluster
 func (c *Client) AddMember(ctx context.Context, peerURL string) (*clientv3.MemberAddResponse, error) {
+	// 创建带超时的上下文
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	resp, err := c.MemberAdd(ctx, []string{peerURL})
 	if err != nil {
 		return nil, fmt.Errorf("failed to add member: %w", err)
@@ -99,6 +111,10 @@ func (c *Client) RemoveMember(ctx context.Context, memberID uint64) error {
 
 // GetLeader returns the current leader information
 func (c *Client) GetLeader(ctx context.Context) (string, error) {
+	// 创建带超时的上下文
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	resp, err := c.Status(ctx, c.Endpoints()[0])
 	if err != nil {
 		return "", fmt.Errorf("failed to get status: %w", err)
@@ -124,6 +140,10 @@ func (c *Client) GetClusterID(ctx context.Context) (string, error) {
 	if len(c.Endpoints()) == 0 {
 		return "", fmt.Errorf("no endpoints available")
 	}
+
+	// 创建带超时的上下文
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	resp, err := c.Status(ctx, c.Endpoints()[0])
 	if err != nil {

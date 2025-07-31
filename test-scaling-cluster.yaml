@@ -1,12 +1,12 @@
 apiVersion: etcd.etcd.io/v1alpha1
 kind: EtcdCluster
 metadata:
-  name: test-3-node-cluster
-  namespace: default
+  name: test-scaling-cluster
+  namespace: test-scaling
 spec:
   size: 3
   version: "v3.5.21"
-  repository: "quay.io/coreos/etcd"
+  repository: "quay.io/coreos/etcd"  # 官方镜像
   storage:
     size: "1Gi"
   resources:

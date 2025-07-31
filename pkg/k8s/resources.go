@@ -32,6 +32,11 @@ import (
 
 // BuildStatefulSet creates a StatefulSet for the EtcdCluster
 func BuildStatefulSet(cluster *etcdv1alpha1.EtcdCluster) *appsv1.StatefulSet {
+	return BuildStatefulSetWithReplicas(cluster, cluster.Spec.Size)
+}
+
+// BuildStatefulSetWithReplicas creates a StatefulSet with specified replica count
+func BuildStatefulSetWithReplicas(cluster *etcdv1alpha1.EtcdCluster, replicas int32) *appsv1.StatefulSet {
 	labels := utils.LabelsForEtcdCluster(cluster)
 	selectorLabels := utils.SelectorLabelsForEtcdCluster(cluster)
 
@@ -43,7 +48,7 @@ func BuildStatefulSet(cluster *etcdv1alpha1.EtcdCluster) *appsv1.StatefulSet {
 			Annotations: utils.AnnotationsForEtcdCluster(cluster),
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas:    &cluster.Spec.Size,
+			Replicas:    &replicas,
 			ServiceName: fmt.Sprintf("%s-peer", cluster.Name),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: selectorLabels,
@@ -68,32 +73,45 @@ func BuildStatefulSet(cluster *etcdv1alpha1.EtcdCluster) *appsv1.StatefulSet {
 
 // buildPodSpec creates the pod specification for etcd
 func buildPodSpec(cluster *etcdv1alpha1.EtcdCluster) corev1.PodSpec {
+	// Build init containers for all clusters (single and multi-node)
+	var initContainers []corev1.Container
+	initContainers = append(initContainers, buildEtcdInitContainer(cluster))
+
 	containers := []corev1.Container{
-		buildEtcdContainer(cluster),
+		buildEtcdContainer(cluster, 0), // StatefulSet 模板中使用默认配置
 	}
 
-	// Add netshoot sidecar container for debugging if using Bitnami image
-	if strings.Contains(cluster.Spec.Repository, "bitnami") {
-		netshootContainer := corev1.Container{
-			Name:    "netshoot",
-			Image:   "nicolaka/netshoot:latest",
-			Command: []string{"sleep", "3600"},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("50m"),
-					corev1.ResourceMemory: resource.MustParse("64Mi"),
-				},
-				Limits: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("128Mi"),
-				},
+	// Add netshoot sidecar container for debugging (always available for troubleshooting)
+	netshootContainer := corev1.Container{
+		Name:    "netshoot",
+		Image:   "nicolaka/netshoot:latest",
+		Command: []string{"sleep", "3600"},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
 			},
-		}
-		containers = append(containers, netshootContainer)
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("128Mi"),
+			},
+		},
 	}
+	containers = append(containers, netshootContainer)
+
+	// Build volumes for all clusters (single and multi-node)
+	var volumes []corev1.Volume
+	volumes = append(volumes, corev1.Volume{
+		Name: "etcd-config",
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	})
 
 	return corev1.PodSpec{
+		InitContainers:                initContainers,
 		Containers:                    containers,
+		Volumes:                       volumes,
 		RestartPolicy:                 corev1.RestartPolicyAlways,
 		TerminationGracePeriodSeconds: &[]int64{30}[0],
 		DNSPolicy:                     corev1.DNSClusterFirst,
@@ -104,12 +122,15 @@ func buildPodSpec(cluster *etcdv1alpha1.EtcdCluster) corev1.PodSpec {
 }
 
 // buildEtcdContainer creates the etcd container specification
-func buildEtcdContainer(cluster *etcdv1alpha1.EtcdCluster) corev1.Container {
+func buildEtcdContainer(cluster *etcdv1alpha1.EtcdCluster, podIndex int) corev1.Container {
 	image := fmt.Sprintf("%s:%s", cluster.Spec.Repository, cluster.Spec.Version)
 
 	container := corev1.Container{
 		Name:  "etcd",
 		Image: image,
+		// 使用配置文件启动 etcd（由 Init Container 生成）
+		Command: []string{"/usr/local/bin/etcd"},
+		Args:    []string{"--config-file=/etc/etcd/etcd.conf"},
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "client",
@@ -122,26 +143,61 @@ func buildEtcdContainer(cluster *etcdv1alpha1.EtcdCluster) corev1.Container {
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
-		Env: buildEtcdEnvironment(cluster),
-		VolumeMounts: []corev1.VolumeMount{
+		Env: []corev1.EnvVar{
 			{
-				Name:      "data",
-				MountPath: utils.EtcdDataDir,
+				Name: "HOSTNAME",
+				ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{
+						FieldPath: "metadata.name",
+					},
+				},
 			},
 		},
+		VolumeMounts:   buildVolumeMounts(cluster),
 		LivenessProbe:  buildLivenessProbe(cluster),
 		ReadinessProbe: buildReadinessProbe(cluster),
 		Resources:      buildResourceRequirements(cluster),
 	}
 
+	// 对于多节点集群，不使用启动脚本（官方镜像没有 shell）
+	// 而是通过环境变量覆盖来实现动态配置
+
 	return container
 }
 
+// buildVolumeMounts creates volume mounts for etcd container
+func buildVolumeMounts(cluster *etcdv1alpha1.EtcdCluster) []corev1.VolumeMount {
+	mounts := []corev1.VolumeMount{
+		{
+			Name:      "data",
+			MountPath: utils.EtcdDataDir,
+		},
+	}
+
+	// Add etcd config mount for all clusters
+	mounts = append(mounts, corev1.VolumeMount{
+		Name:      "etcd-config",
+		MountPath: "/etc/etcd",
+		ReadOnly:  true,
+	})
+
+	return mounts
+}
+
 // buildEtcdEnvironment creates environment variables for etcd
-func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar {
+func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster, podIndex int) []corev1.EnvVar {
+	// 基础环境变量 - 适用于官方镜像和 Bitnami 镜像
 	envVars := []corev1.EnvVar{
 		{
 			Name: "ETCD_NAME",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "metadata.name",
+				},
+			},
+		},
+		{
+			Name: "POD_NAME",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{
 					FieldPath: "metadata.name",
@@ -170,20 +226,23 @@ func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar {
 		},
 		{
 			Name:  "ETCD_INITIAL_CLUSTER_STATE",
-			Value: "new", // 对于新集群，所有节点都使用 "new"
+			Value: getInitialClusterState(cluster, podIndex),
 		},
 		{
 			Name:  "ETCD_INITIAL_CLUSTER_TOKEN",
 			Value: cluster.Name,
 		},
-		{
-			Name:  "ETCD_INITIAL_CLUSTER",
-			Value: buildInitialCluster(cluster),
-		},
 	}
 
-	// Add Bitnami-specific environment variables if using Bitnami image
+	// 根据节点索引和集群大小决定初始集群配置
+	envVars = append(envVars, corev1.EnvVar{
+		Name:  "ETCD_INITIAL_CLUSTER",
+		Value: buildInitialClusterForNode(cluster, podIndex),
+	})
+
+	// 添加镜像特定的环境变量
 	if strings.Contains(cluster.Spec.Repository, "bitnami") {
+		// Bitnami 镜像特定配置（保持向后兼容）
 		bitnamiEnvVars := []corev1.EnvVar{
 			{
 				Name:  "ALLOW_NONE_AUTHENTICATION",
@@ -197,41 +256,19 @@ func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster) []corev1.EnvVar {
 				Name:  "MY_STS_NAME",
 				Value: cluster.Name,
 			},
+			{
+				Name:  "ETCD_ON_K8S",
+				Value: "yes",
+			},
+			{
+				Name:  "ETCD_CLUSTER_DOMAIN",
+				Value: fmt.Sprintf("%s-peer.%s.svc.cluster.local", cluster.Name, cluster.Namespace),
+			},
 		}
-
-		// For multi-node clusters, we need special handling
-		if cluster.Spec.Size > 1 {
-			// Use a different approach for multi-node clusters
-			bitnamiEnvVars = append(bitnamiEnvVars, []corev1.EnvVar{
-				{
-					Name:  "ETCD_ON_K8S",
-					Value: "yes",
-				},
-				{
-					Name:  "ETCD_CLUSTER_DOMAIN",
-					Value: fmt.Sprintf("%s-peer.%s.svc.cluster.local", cluster.Name, cluster.Namespace),
-				},
-				// Skip the headless service domain check for multi-node clusters
-				{
-					Name:  "ETCD_SKIP_DOMAIN_CHECK",
-					Value: "yes",
-				},
-			}...)
-		} else {
-			// Single node configuration
-			bitnamiEnvVars = append(bitnamiEnvVars, []corev1.EnvVar{
-				{
-					Name:  "ETCD_ON_K8S",
-					Value: "yes",
-				},
-				{
-					Name:  "ETCD_CLUSTER_DOMAIN",
-					Value: fmt.Sprintf("%s-peer.%s.svc.cluster.local", cluster.Name, cluster.Namespace),
-				},
-			}...)
-		}
-
 		envVars = append(envVars, bitnamiEnvVars...)
+	} else {
+		// 官方镜像配置 - 使用标准 etcd 环境变量
+		// 官方镜像不需要额外的环境变量，使用标准配置即可
 	}
 
 	return envVars
@@ -254,12 +291,16 @@ func buildLivenessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
 		}
 	}
 
-	// Use standard HTTP health check for other images
+	// 官方镜像使用 etcdctl 进行健康检查
 	return &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path: "/health",
-				Port: intstr.FromInt(utils.EtcdClientPort),
+			Exec: &corev1.ExecAction{
+				Command: []string{
+					"etcdctl",
+					"--endpoints=http://localhost:2379",
+					"endpoint",
+					"health",
+				},
 			},
 		},
 		InitialDelaySeconds: 30,
@@ -303,15 +344,36 @@ func buildReadinessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
 		}
 	}
 
-	// Use standard HTTP health check for other images
+	// 官方镜像的就绪检查策略
+	if cluster.Spec.Size > 1 {
+		// 多节点集群使用 TCP 探针，避免循环依赖问题
+		// etcd 进程启动后 Pod 就变为就绪，这样可以创建 DNS 记录
+		return &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{
+					Port: intstr.FromInt(utils.EtcdClientPort),
+				},
+			},
+			InitialDelaySeconds: 10, // 等待 etcd 进程启动
+			PeriodSeconds:       5,
+			TimeoutSeconds:      3,
+			FailureThreshold:    5, // 更宽容的失败阈值
+		}
+	}
+
+	// 单节点集群使用健康检查
 	return &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
-			HTTPGet: &corev1.HTTPGetAction{
-				Path: "/health",
-				Port: intstr.FromInt(utils.EtcdClientPort),
+			Exec: &corev1.ExecAction{
+				Command: []string{
+					"etcdctl",
+					"--endpoints=http://localhost:2379",
+					"endpoint",
+					"health",
+				},
 			},
 		},
-		InitialDelaySeconds: 10,
+		InitialDelaySeconds: 15, // 官方镜像启动较快
 		PeriodSeconds:       5,
 		TimeoutSeconds:      3,
 		FailureThreshold:    3,
@@ -328,6 +390,104 @@ func buildInitialCluster(cluster *etcdv1alpha1.EtcdCluster) string {
 		members = append(members, fmt.Sprintf("%s=%s", memberName, memberURL))
 	}
 	return strings.Join(members, ",")
+}
+
+// buildDynamicInitialCluster creates initial cluster configuration for dynamic multi-node setup
+// For multi-node clusters, the first node starts as a single-node cluster
+// Other nodes will be added dynamically through etcd member management API
+func buildDynamicInitialCluster(cluster *etcdv1alpha1.EtcdCluster) string {
+	// 对于多节点集群，第一个节点以单节点模式启动
+	// 这样避免了等待其他节点的问题
+	firstNodeName := fmt.Sprintf("%s-0", cluster.Name)
+	firstNodeURL := fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d",
+		firstNodeName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort)
+
+	// 只返回第一个节点的配置，其他节点将通过动态扩容添加
+	return fmt.Sprintf("%s=%s", firstNodeName, firstNodeURL)
+}
+
+// buildEtcdInitContainer creates an init container for multi-node etcd setup
+func buildEtcdInitContainer(cluster *etcdv1alpha1.EtcdCluster) corev1.Container {
+	script := `#!/bin/sh
+set -e
+
+# 获取当前节点信息
+HOSTNAME=$(hostname)
+POD_INDEX=$(echo $HOSTNAME | sed 's/.*-//')
+
+echo "Current hostname: $HOSTNAME"
+echo "Pod index: $POD_INDEX"
+
+# 创建配置目录
+mkdir -p /etc/etcd
+
+# 生成 etcd 配置文件
+cat > /etc/etcd/etcd.conf << EOF
+# etcd configuration for $HOSTNAME
+name: $HOSTNAME
+data-dir: /data
+listen-client-urls: http://0.0.0.0:2379
+listen-peer-urls: http://0.0.0.0:2380
+advertise-client-urls: http://$HOSTNAME.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2379
+initial-advertise-peer-urls: http://$HOSTNAME.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380
+initial-cluster-token: ` + cluster.Name + `
+EOF
+
+# 根据节点索引设置集群配置
+if [ "$POD_INDEX" = "0" ]; then
+    # 第一个节点：使用 new 模式
+    echo "Configuring as first node (new cluster)"
+    cat >> /etc/etcd/etcd.conf << EOF
+initial-cluster-state: new
+initial-cluster: $HOSTNAME=http://$HOSTNAME.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380
+EOF
+else
+    # 后续节点：使用 existing 模式
+    echo "Configuring as additional node (joining existing cluster)"
+
+    # 构建包含所有节点的初始集群配置
+    INITIAL_CLUSTER=""
+    for i in $(seq 0 $POD_INDEX); do
+        if [ -n "$INITIAL_CLUSTER" ]; then
+            INITIAL_CLUSTER="$INITIAL_CLUSTER,"
+        fi
+        INITIAL_CLUSTER="${INITIAL_CLUSTER}` + cluster.Name + `-${i}=http://` + cluster.Name + `-${i}.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380"
+    done
+
+    cat >> /etc/etcd/etcd.conf << EOF
+initial-cluster-state: existing
+initial-cluster: $INITIAL_CLUSTER
+EOF
+
+    echo "Initial cluster: $INITIAL_CLUSTER"
+fi
+
+echo "Generated etcd configuration:"
+cat /etc/etcd/etcd.conf
+echo "Init container completed successfully"
+`
+
+	return corev1.Container{
+		Name:    "etcd-init",
+		Image:   "busybox:1.35",
+		Command: []string{"/bin/sh", "-c", script},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "etcd-config",
+				MountPath: "/etc/etcd",
+			},
+		},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+		},
+	}
 }
 
 // buildResourceRequirements creates resource requirements for etcd container
@@ -440,6 +600,37 @@ func BuildPeerService(cluster *etcdv1alpha1.EtcdCluster) *corev1.Service {
 	}
 }
 
+// BuildNodePortService creates a NodePort service for external operator access
+// This service load balances to all healthy etcd nodes for stable external connections
+func BuildNodePortService(cluster *etcdv1alpha1.EtcdCluster) *corev1.Service {
+	labels := utils.LabelsForEtcdService(cluster, "nodeport")
+
+	// 使用标准的集群选择器，负载均衡到所有健康的 etcd 节点
+	selectorLabels := utils.SelectorLabelsForEtcdCluster(cluster)
+
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        fmt.Sprintf("%s-nodeport", cluster.Name),
+			Namespace:   cluster.Namespace,
+			Labels:      labels,
+			Annotations: utils.AnnotationsForEtcdCluster(cluster),
+		},
+		Spec: corev1.ServiceSpec{
+			Type:     corev1.ServiceTypeNodePort,
+			Selector: selectorLabels,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "client",
+					Port:       utils.EtcdClientPort,
+					TargetPort: intstr.FromInt(utils.EtcdClientPort),
+					Protocol:   corev1.ProtocolTCP,
+					NodePort:   30379, // 固定的 NodePort，方便 operator 连接
+				},
+			},
+		},
+	}
+}
+
 // BuildConfigMap creates a ConfigMap for etcd configuration
 func BuildConfigMap(cluster *etcdv1alpha1.EtcdCluster) *corev1.ConfigMap {
 	labels := utils.LabelsForEtcdCluster(cluster)
@@ -481,4 +672,26 @@ initial-cluster: %s
 	)
 
 	return config
+}
+
+// getInitialClusterState determines the initial cluster state based on node index
+func getInitialClusterState(cluster *etcdv1alpha1.EtcdCluster, podIndex int) string {
+	// 在 StatefulSet 模板中，我们始终使用 "new" 状态
+	// operator 会在添加成员后重启 Pod，并通过环境变量覆盖来设置正确的状态
+	return "new"
+}
+
+// buildInitialClusterForNode creates initial cluster configuration for a specific node
+func buildInitialClusterForNode(cluster *etcdv1alpha1.EtcdCluster, podIndex int) string {
+	if cluster.Spec.Size == 1 {
+		// 单节点集群
+		return buildInitialCluster(cluster)
+	}
+
+	// 对于多节点集群，在 StatefulSet 模板中我们始终使用第一个节点的配置
+	// 这样第一个节点可以成功启动，后续节点将通过 operator 动态管理
+	firstNodeName := fmt.Sprintf("%s-0", cluster.Name)
+	firstNodeURL := fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d",
+		firstNodeName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort)
+	return fmt.Sprintf("%s=%s", firstNodeName, firstNodeURL)
 }

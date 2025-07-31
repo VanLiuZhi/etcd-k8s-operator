@@ -376,9 +376,10 @@ spec:
                         type: object
                     type: object
                   version:
-                    default: 3.5.9
-                    description: Version is the etcd version to use
-                    pattern: ^3\.[0-9]+\.[0-9]+$
+                    default: v3.5.21
+                    description: Version is the etcd version to use (supports both
+                      "3.5.21" and "v3.5.21" formats)
+                    pattern: ^v?3\.[0-9]+\.[0-9]+$
                     type: string
                 type: object
               dataDir:

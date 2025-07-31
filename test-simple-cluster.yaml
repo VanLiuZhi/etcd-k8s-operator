@@ -1,0 +1,11 @@
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: test-simple-cluster
+  namespace: test-scaling
+spec:
+  size: 3  # 测试扩容到多节点
+  version: v3.5.21
+  repository: quay.io/coreos/etcd
+  storage:
+    size: 1Gi

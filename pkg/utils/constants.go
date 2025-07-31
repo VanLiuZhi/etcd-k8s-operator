@@ -22,11 +22,11 @@ const (
 	// EtcdFinalizer is the finalizer used by the etcd operator
 	EtcdFinalizer = "etcd.etcd.io/finalizer"
 
-	// DefaultEtcdVersion is the default etcd version
-	DefaultEtcdVersion = "3.5.9"
+	// DefaultEtcdVersion is the default etcd version (官方镜像)
+	DefaultEtcdVersion = "v3.5.21"
 
-	// DefaultEtcdRepository is the default etcd image repository
-	DefaultEtcdRepository = "bitnami/etcd"
+	// DefaultEtcdRepository is the default etcd image repository (官方镜像)
+	DefaultEtcdRepository = "quay.io/coreos/etcd"
 
 	// DefaultClusterSize is the default cluster size
 	DefaultClusterSize = 3
@@ -40,11 +40,11 @@ const (
 	// EtcdPeerPort is the default etcd peer port
 	EtcdPeerPort = 2380
 
-	// EtcdDataDir is the default etcd data directory
-	EtcdDataDir = "/var/lib/etcd"
+	// EtcdDataDir is the default etcd data directory (官方镜像使用 /data)
+	EtcdDataDir = "/data"
 
-	// EtcdWALDir is the default etcd WAL directory
-	EtcdWALDir = "/var/lib/etcd/wal"
+	// EtcdWALDir is the default etcd WAL directory (官方镜像使用 /data/wal)
+	EtcdWALDir = "/data/wal"
 
 	// DefaultRequeueInterval is the default requeue interval
 	DefaultRequeueInterval = 30 * time.Second
