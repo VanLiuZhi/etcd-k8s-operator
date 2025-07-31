@@ -6,23 +6,26 @@
 
 ## 🎯 快速导航
 
-### 📋 项目管理文档
-- **[项目主控文档](../PROJECT_MASTER.md)** - 项目概述、进度追踪、里程碑管理
-- **[技术规范文档](../TECHNICAL_SPECIFICATION.md)** - 详细的 API 设计和实现规范
+### 📋 项目管理文档 (project-manage/)
+- **[项目主控文档](project-manage/PROJECT_MASTER.md)** - 项目概述、进度追踪、里程碑管理
+- **[技术规范文档](project-manage/TECHNICAL_SPECIFICATION.md)** - 详细的 API 设计和实现规范
+- **[开发指南](project-manage/DEVELOPMENT_GUIDE.md)** - 开发环境设置和代码规范
+- **[变更日志](project-manage/CHANGELOG.md)** - 项目版本变更记录
 
-### 🛠️ 开发文档
-- **[开发规则文档](DEVELOPMENT_RULES.md)** - 开发规范、测试驱动开发、质量标准
-- **[开发指南](../DEVELOPMENT_GUIDE.md)** - 开发环境设置和代码规范
+### 🛠️ 技术设计文档 (design/)
+- **[开发规则文档](design/DEVELOPMENT_RULES.md)** - 开发规范、测试驱动开发、质量标准
+- **[测试指南](design/TESTING_GUIDE.md)** - 完整的测试策略和执行指南
+- **[测试过程详解](design/TEST_PROCESS_EXPLANATION.md)** - 详细的测试流程说明
+- **[多节点实现方案](design/MULTINODE_IMPLEMENTATION.md)** - 多节点集群架构设计
+- **[Bitnami etcd 支持](design/BITNAMI_ETCD_SUPPORT.md)** - Bitnami 镜像集成方案
 
-### 🧪 测试文档
-- **[测试指南](TESTING_GUIDE.md)** - 完整的测试策略和执行指南
-- **[测试过程详解](TEST_PROCESS_EXPLANATION.md)** - 详细的测试流程说明
+### 📊 实现状态报告 (design/)
+- **[控制器实现完成报告](design/CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 核心控制器实现进展
+- **[扩缩容功能实现完成报告](design/SCALING_IMPLEMENTATION_COMPLETE.md)** - 动态扩缩容功能完整实现 🎉
+- **[下一步计划](design/NEXT_STEPS.md)** - 后续开发计划
 
-### 📊 状态报告
-- **[控制器实现状态报告](CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 核心控制器实现进展和问题
-
-### 🔧 其他文档
-- **[文档优化记录](DOCUMENTATION_OPTIMIZATION.md)** - 文档改进历史
+### 🔧 其他文档 (design/)
+- **[文档优化记录](design/DOCUMENTATION_OPTIMIZATION.md)** - 文档改进历史
 
 ## 📖 文档使用指南
 
@@ -30,31 +33,31 @@
 如果您是第一次接触这个项目，建议按以下顺序阅读：
 
 1. **[README.md](../README.md)** - 了解项目概述和快速开始
-2. **[项目主控文档](../PROJECT_MASTER.md)** - 了解项目架构和当前进度
-3. **[开发规则文档](DEVELOPMENT_RULES.md)** - 了解开发规范和流程
-4. **[开发指南](../DEVELOPMENT_GUIDE.md)** - 设置开发环境
+2. **[项目主控文档](project-manage/PROJECT_MASTER.md)** - 了解项目架构和当前进度
+3. **[开发规则文档](design/DEVELOPMENT_RULES.md)** - 了解开发规范和流程
+4. **[开发指南](project-manage/DEVELOPMENT_GUIDE.md)** - 设置开发环境
 
 ### 👨‍💻 开发人员
 如果您要参与开发，重点关注：
 
-1. **[开发规则文档](DEVELOPMENT_RULES.md)** - 必须遵循的开发规范
-2. **[技术规范文档](../TECHNICAL_SPECIFICATION.md)** - API 设计和技术约束
-3. **[测试指南](TESTING_GUIDE.md)** - 测试策略和执行方法
-4. **[控制器实现状态报告](CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 当前实现状态
+1. **[开发规则文档](design/DEVELOPMENT_RULES.md)** - 必须遵循的开发规范
+2. **[技术规范文档](project-manage/TECHNICAL_SPECIFICATION.md)** - API 设计和技术约束
+3. **[测试指南](design/TESTING_GUIDE.md)** - 测试策略和执行方法
+4. **[控制器实现状态报告](design/CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 当前实现状态
 
 ### 🧪 测试人员
 如果您负责测试，重点关注：
 
-1. **[测试指南](TESTING_GUIDE.md)** - 完整的测试策略
-2. **[测试过程详解](TEST_PROCESS_EXPLANATION.md)** - 详细的测试执行步骤
-3. **[开发规则文档](DEVELOPMENT_RULES.md)** - 测试驱动开发规范
+1. **[测试指南](design/TESTING_GUIDE.md)** - 完整的测试策略
+2. **[测试过程详解](design/TEST_PROCESS_EXPLANATION.md)** - 详细的测试执行步骤
+3. **[开发规则文档](design/DEVELOPMENT_RULES.md)** - 测试驱动开发规范
 
 ### 📊 项目管理
 如果您负责项目管理，重点关注：
 
-1. **[项目主控文档](../PROJECT_MASTER.md)** - 项目进度和里程碑
-2. **[控制器实现状态报告](CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 技术实现状态
-3. **[开发规则文档](DEVELOPMENT_RULES.md)** - 质量标准和流程规范
+1. **[项目主控文档](project-manage/PROJECT_MASTER.md)** - 项目进度和里程碑
+2. **[控制器实现状态报告](design/CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 技术实现状态
+3. **[开发规则文档](design/DEVELOPMENT_RULES.md)** - 质量标准和流程规范
 
 ## 🔄 文档维护
 

@@ -132,6 +132,9 @@ const (
 
 	// ReasonUnhealthy indicates the cluster is unhealthy
 	ReasonUnhealthy = "Unhealthy"
+
+	// ReasonStopped indicates the cluster is stopped
+	ReasonStopped = "Stopped"
 )
 
 // Event reasons
@@ -162,4 +165,7 @@ const (
 
 	// EventReasonBackupFailed indicates backup failed event
 	EventReasonBackupFailed = "BackupFailed"
+
+	// EventReasonClusterStopped indicates cluster stopped event
+	EventReasonClusterStopped = "ClusterStopped"
 )

@@ -111,6 +111,9 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	case etcdv1alpha1.EtcdClusterPhaseScaling:
 		logger.Info("Scaling EtcdCluster")
 		return r.handleScaling(ctx, cluster)
+	case etcdv1alpha1.EtcdClusterPhaseStopped:
+		logger.Info("EtcdCluster is stopped, checking if restart needed")
+		return r.handleStopped(ctx, cluster)
 	case etcdv1alpha1.EtcdClusterPhaseFailed:
 		logger.Info("EtcdCluster has failed, attempting recovery")
 		return r.handleFailed(ctx, cluster)
@@ -122,7 +125,9 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // setDefaults sets default values for the EtcdCluster
 func (r *EtcdClusterReconciler) setDefaults(cluster *etcdv1alpha1.EtcdCluster) {
-	if cluster.Spec.Size == 0 {
+	// 不再强制设置Size默认值，允许size=0用于集群删除
+	// 只有在创建新集群时才设置默认值
+	if cluster.Spec.Size == 0 && cluster.Status.Phase == "" {
 		cluster.Spec.Size = utils.DefaultClusterSize
 	}
 	if cluster.Spec.Version == "" {
@@ -367,6 +372,12 @@ func (r *EtcdClusterReconciler) handleScaling(ctx context.Context, cluster *etcd
 	currentSize := cluster.Status.ReadyReplicas
 	desiredSize := cluster.Spec.Size
 
+	// 特殊处理：缩容到0 (停止集群)
+	if desiredSize == 0 {
+		logger.Info("Scaling down cluster to zero (stopping cluster)", "from", currentSize)
+		return r.handleScaleToZero(ctx, cluster)
+	}
+
 	if currentSize < desiredSize {
 		logger.Info("Scaling up cluster", "from", currentSize, "to", desiredSize)
 		return r.handleScaleUp(ctx, cluster)
@@ -452,14 +463,19 @@ func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, cluster *etc
 
 // validateClusterSpec validates the cluster specification
 func (r *EtcdClusterReconciler) validateClusterSpec(cluster *etcdv1alpha1.EtcdCluster) error {
-	// 验证集群大小必须是奇数
+	// 允许size=0用于集群删除/停止
+	if cluster.Spec.Size == 0 {
+		return nil
+	}
+
+	// 验证集群大小必须是奇数 (size > 0时)
 	if cluster.Spec.Size%2 == 0 {
 		return fmt.Errorf("cluster size must be odd number, got %d", cluster.Spec.Size)
 	}
 
-	// 验证集群大小范围
-	if cluster.Spec.Size < 1 || cluster.Spec.Size > 9 {
-		return fmt.Errorf("cluster size must be between 1 and 9, got %d", cluster.Spec.Size)
+	// 验证集群大小范围 (允许0-9)
+	if cluster.Spec.Size < 0 || cluster.Spec.Size > 9 {
+		return fmt.Errorf("cluster size must be between 0 and 9, got %d", cluster.Spec.Size)
 	}
 
 	return nil
@@ -775,28 +791,22 @@ func (r *EtcdClusterReconciler) updateMemberStatus(ctx context.Context, cluster 
 		return fmt.Errorf("failed to list pods: %w", err)
 	}
 
-	// 构建成员状态列表
-	members := make([]etcdv1alpha1.EtcdMember, 0, cluster.Spec.Size)
+	// 构建成员状态列表 - 基于实际存在的Pod而不是期望的Size
+	members := make([]etcdv1alpha1.EtcdMember, 0, len(podList.Items))
 
-	for i := int32(0); i < cluster.Spec.Size; i++ {
-		memberName := fmt.Sprintf("%s-%d", cluster.Name, i)
+	// 遍历实际存在的Pod来构建成员状态
+	for _, pod := range podList.Items {
 		member := etcdv1alpha1.EtcdMember{
-			Name:      memberName,
-			PeerURL:   fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d", memberName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort),
-			ClientURL: fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d", memberName, cluster.Name, cluster.Namespace, utils.EtcdClientPort),
+			Name:      pod.Name,
+			PeerURL:   fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d", pod.Name, cluster.Name, cluster.Namespace, utils.EtcdPeerPort),
+			ClientURL: fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d", pod.Name, cluster.Name, cluster.Namespace, utils.EtcdClientPort),
 			Ready:     false,
 		}
 
-		// 检查对应的 Pod 是否就绪
-		for _, pod := range podList.Items {
-			if pod.Name == memberName {
-				// 检查 Pod 是否就绪
-				for _, condition := range pod.Status.Conditions {
-					if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-						member.Ready = true
-						break
-					}
-				}
+		// 检查 Pod 是否就绪
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+				member.Ready = true
 				break
 			}
 		}
@@ -968,14 +978,231 @@ func (r *EtcdClusterReconciler) handleScaleDown(ctx context.Context, cluster *et
 
 	logger.Info("Updated StatefulSet replicas", "from", currentReplicas, "to", desiredReplicas)
 
+	// 步骤 3: 清理多余的 PVC (关键修复)
+	if err := r.cleanupExtraPVCs(ctx, cluster, desiredReplicas, currentReplicas); err != nil {
+		logger.Error(err, "Failed to cleanup extra PVCs")
+		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+	}
+
+	// 步骤 4: 如果缩容到单节点，重置集群状态 (关键修复)
+	if desiredReplicas == 1 {
+		if err := r.resetSingleNodeCluster(ctx, cluster); err != nil {
+			logger.Error(err, "Failed to reset single node cluster")
+			return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+		}
+	}
+
 	// 等待副本缩减完成
 	return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+}
+
+// handleScaleToZero handles scaling down the cluster to zero (stopping cluster)
+func (r *EtcdClusterReconciler) handleScaleToZero(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	logger.Info("Scaling cluster to zero - stopping all etcd instances")
+
+	// 获取当前 StatefulSet
+	sts := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      cluster.Name,
+		Namespace: cluster.Namespace,
+	}, sts); err != nil {
+		if errors.IsNotFound(err) {
+			// StatefulSet已经不存在，直接更新状态
+			return r.updateStatusAfterScaleToZero(ctx, cluster)
+		}
+		return ctrl.Result{}, err
+	}
+
+	currentReplicas := *sts.Spec.Replicas
+
+	// 如果已经是0副本，检查是否完成
+	if currentReplicas == 0 {
+		if sts.Status.Replicas == 0 {
+			logger.Info("Scale to zero completed")
+			return r.updateStatusAfterScaleToZero(ctx, cluster)
+		}
+		// 等待Pod终止完成
+		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+	}
+
+	// 设置StatefulSet副本数为0
+	logger.Info("Setting StatefulSet replicas to zero", "current", currentReplicas)
+	*sts.Spec.Replicas = 0
+	if err := r.Update(ctx, sts); err != nil {
+		logger.Error(err, "Failed to update StatefulSet replicas to zero")
+		return ctrl.Result{}, err
+	}
+
+	// 等待Pod终止
+	return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+}
+
+// updateStatusAfterScaleToZero updates cluster status after scaling to zero
+func (r *EtcdClusterReconciler) updateStatusAfterScaleToZero(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// 更新集群状态为Stopped
+	cluster.Status.Phase = etcdv1alpha1.EtcdClusterPhaseStopped
+	cluster.Status.ReadyReplicas = 0
+	cluster.Status.Members = []etcdv1alpha1.EtcdMember{}
+	cluster.Status.LeaderID = ""
+	cluster.Status.ClusterID = ""
+	cluster.Status.ClientEndpoints = []string{}
+
+	r.setCondition(cluster, utils.ConditionTypeReady, metav1.ConditionFalse, utils.ReasonStopped, "Cluster scaled to zero")
+	r.setCondition(cluster, utils.ConditionTypeProgressing, metav1.ConditionFalse, utils.ReasonStopped, "Cluster stopped")
+
+	if err := r.Status().Update(ctx, cluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	r.Recorder.Event(cluster, corev1.EventTypeNormal, utils.EventReasonClusterStopped, "Cluster scaled to zero and stopped")
+	logger.Info("Cluster successfully scaled to zero and stopped")
+
+	// 停止状态下不需要频繁检查
+	return ctrl.Result{RequeueAfter: utils.DefaultHealthCheckInterval * 2}, nil
+}
+
+// handleStopped handles the stopped phase (size=0)
+func (r *EtcdClusterReconciler) handleStopped(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// 如果用户将size从0改为>0，需要重新启动集群
+	if cluster.Spec.Size > 0 {
+		logger.Info("Restarting cluster from stopped state", "desiredSize", cluster.Spec.Size)
+
+		// 转换到创建状态重新启动集群
+		cluster.Status.Phase = etcdv1alpha1.EtcdClusterPhaseCreating
+		r.setCondition(cluster, utils.ConditionTypeProgressing, metav1.ConditionTrue, utils.ReasonCreating, "Restarting cluster from stopped state")
+
+		if err := r.Status().Update(ctx, cluster); err != nil {
+			return ctrl.Result{}, err
+		}
+
+		r.Recorder.Event(cluster, corev1.EventTypeNormal, utils.EventReasonClusterCreated, "Restarting cluster from stopped state")
+		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+	}
+
+	// 确保所有PVC都被清理（停止状态下不应该有任何PVC）
+	if err := r.cleanupAllPVCs(ctx, cluster); err != nil {
+		logger.Error(err, "Failed to cleanup PVCs in stopped state")
+		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, err
+	}
+
+	// 保持停止状态，较少频率检查
+	return ctrl.Result{RequeueAfter: utils.DefaultHealthCheckInterval * 3}, nil
+}
+
+// cleanupExtraPVCs cleans up extra PVCs after scaling down
+func (r *EtcdClusterReconciler) cleanupExtraPVCs(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, desiredReplicas, currentReplicas int32) error {
+	logger := log.FromContext(ctx)
+
+	// 删除多余的PVC，让StorageClass的Delete策略生效
+	for i := desiredReplicas; i < currentReplicas; i++ {
+		pvcName := fmt.Sprintf("data-%s-%d", cluster.Name, i)
+
+		logger.Info("Deleting extra PVC", "pvcName", pvcName)
+
+		pvc := &corev1.PersistentVolumeClaim{}
+		err := r.Get(ctx, types.NamespacedName{
+			Name:      pvcName,
+			Namespace: cluster.Namespace,
+		}, pvc)
+
+		if err != nil {
+			if errors.IsNotFound(err) {
+				logger.Info("PVC already deleted", "pvcName", pvcName)
+				continue
+			}
+			return fmt.Errorf("failed to get PVC %s: %w", pvcName, err)
+		}
+
+		// 删除PVC，StorageClass的Delete策略会自动删除PV
+		if err := r.Delete(ctx, pvc); err != nil {
+			return fmt.Errorf("failed to delete PVC %s: %w", pvcName, err)
+		}
+
+		logger.Info("Successfully deleted PVC", "pvcName", pvcName)
+	}
+
+	return nil
+}
+
+// resetSingleNodeCluster resets single node cluster state after scaling down
+func (r *EtcdClusterReconciler) resetSingleNodeCluster(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error {
+	logger := log.FromContext(ctx)
+
+	logger.Info("Resetting single node cluster state")
+
+	// 对于单节点集群，我们需要确保etcd以单节点模式运行
+	// 这里可以通过重启Pod来实现，让etcd重新初始化
+
+	// 获取单节点Pod
+	podName := fmt.Sprintf("%s-0", cluster.Name)
+	pod := &corev1.Pod{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      podName,
+		Namespace: cluster.Namespace,
+	}, pod)
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			logger.Info("Single node pod not found, skipping reset", "podName", podName)
+			return nil
+		}
+		return fmt.Errorf("failed to get single node pod: %w", err)
+	}
+
+	// 删除Pod，让StatefulSet重新创建，这样etcd会以单节点模式启动
+	logger.Info("Deleting single node pod to reset cluster state", "podName", podName)
+	if err := r.Delete(ctx, pod); err != nil {
+		return fmt.Errorf("failed to delete single node pod: %w", err)
+	}
+
+	logger.Info("Successfully triggered single node cluster reset")
+	return nil
 }
 
 // cleanupResources cleans up resources during deletion
 func (r *EtcdClusterReconciler) cleanupResources(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error {
 	// 清理逻辑可以在这里实现
 	// 例如：清理 PVC、备份等
+	return nil
+}
+
+// cleanupAllPVCs cleans up all PVCs for the cluster (used when size=0)
+func (r *EtcdClusterReconciler) cleanupAllPVCs(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error {
+	logger := log.FromContext(ctx)
+
+	// 列出所有相关的PVC
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(cluster.Namespace),
+		client.MatchingLabels{
+			"app.kubernetes.io/instance": cluster.Name,
+			"app.kubernetes.io/name":     "etcd",
+		},
+	}
+
+	if err := r.List(ctx, pvcList, listOpts...); err != nil {
+		return fmt.Errorf("failed to list PVCs: %w", err)
+	}
+
+	// 删除所有找到的PVC
+	for _, pvc := range pvcList.Items {
+		logger.Info("Deleting PVC for stopped cluster", "pvc", pvc.Name)
+		if err := r.Delete(ctx, &pvc); err != nil && !errors.IsNotFound(err) {
+			logger.Error(err, "Failed to delete PVC", "pvc", pvc.Name)
+			return fmt.Errorf("failed to delete PVC %s: %w", pvc.Name, err)
+		}
+	}
+
+	if len(pvcList.Items) > 0 {
+		logger.Info("Cleaned up PVCs for stopped cluster", "count", len(pvcList.Items))
+	}
+
 	return nil
 }
 

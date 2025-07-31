@@ -1,0 +1,51 @@
+# PVC数据策略测试方案
+# 测试不同的PVC数据处理策略对扩缩容的影响
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pvc-strategy-test
+---
+# 测试场景1: 保留PVC数据 (当前实现)
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: retain-pvc-cluster
+  namespace: pvc-strategy-test
+spec:
+  size: 1
+  version: "3.5.21"
+  repository: "quay.io/coreos/etcd"
+  storage:
+    size: 1Gi
+    # 不指定删除策略，使用默认保留策略
+---
+# 测试场景2: 清理PVC数据 (需要实现)
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: clean-pvc-cluster
+  namespace: pvc-strategy-test
+spec:
+  size: 1
+  version: "3.5.21"
+  repository: "quay.io/coreos/etcd"
+  storage:
+    size: 1Gi
+    # 添加清理策略配置
+    cleanupPolicy: "DeletePVC"  # 新增字段
+---
+# 测试场景3: 重置数据目录 (需要实现)
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: reset-data-cluster
+  namespace: pvc-strategy-test
+spec:
+  size: 1
+  version: "3.5.21"
+  repository: "quay.io/coreos/etcd"
+  storage:
+    size: 1Gi
+    # 添加数据重置策略
+    cleanupPolicy: "ResetData"  # 新增字段

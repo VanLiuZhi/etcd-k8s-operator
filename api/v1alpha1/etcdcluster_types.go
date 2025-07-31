@@ -38,6 +38,8 @@ const (
 	EtcdClusterPhaseFailed EtcdClusterPhase = "Failed"
 	// EtcdClusterPhaseDeleting indicates the cluster is being deleted
 	EtcdClusterPhaseDeleting EtcdClusterPhase = "Deleting"
+	// EtcdClusterPhaseStopped indicates the cluster is stopped (size=0)
+	EtcdClusterPhaseStopped EtcdClusterPhase = "Stopped"
 )
 
 // EtcdStorageSpec defines the storage configuration for etcd
@@ -102,7 +104,7 @@ type EtcdResourceSpec struct {
 // EtcdClusterSpec defines the desired state of EtcdCluster
 type EtcdClusterSpec struct {
 	// Size is the number of etcd members in the cluster
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=9
 	// +kubebuilder:default=3
 	Size int32 `json:"size,omitempty"`
