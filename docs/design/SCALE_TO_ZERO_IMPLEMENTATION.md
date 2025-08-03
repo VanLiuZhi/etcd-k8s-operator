@@ -248,6 +248,21 @@ http://...:2379 is healthy: successfully committed proposal: took = 3.471253ms
 http://...:2379 is healthy: successfully committed proposal: took = 12.799136ms
 ```
 
+```bash
+# 检查etcd成员列表
+kubectl exec -n <namespace> <pod-name> -c etcd -- etcdctl member list
+
+# 检查集群健康状态
+kubectl exec -n <namespace> <pod-name> -c etcd -- etcdctl endpoint health --cluster
+
+# 检查集群状态详情
+kubectl exec -n <namespace> <pod-name> -c etcd -- etcdctl endpoint status --cluster --write-out=table
+
+# 测试读写功能
+kubectl exec -n <namespace> <pod-name> -c etcd -- etcdctl put test-key test-value
+kubectl exec -n <namespace> <pod-name> -c etcd -- etcdctl get test-key
+```
+
 ## 🚀 技术成就
 
 ### 1. 企业级功能实现

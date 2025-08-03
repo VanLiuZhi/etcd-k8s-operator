@@ -2,7 +2,7 @@ apiVersion: etcd.etcd.io/v1alpha1
 kind: EtcdCluster
 metadata:
   name: test-single-node-cluster
-  namespace: default
+  namespace: default-etcd
 spec:
   size: 1
   version: "v3.5.21"
