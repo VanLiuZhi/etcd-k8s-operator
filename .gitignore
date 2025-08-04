@@ -25,3 +25,27 @@ go.work
 *.swp
 *.swo
 *~
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# macOS 生成的一些其他系统文件
+# .DS_Store 文件夹
+.DS_Store
+# .DS_Store 文件及其所有变体
+.DS_Store?
+# Finder 创建的文件
+._*
+# Spotlight 索引文件
+.Spotlight-V100
+# 垃圾桶文件
+.Trashes
+# Windows 系统文件（在跨平台开发）
+ehthumbs.db
+Thumbs.db
