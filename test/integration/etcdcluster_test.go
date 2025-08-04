@@ -32,6 +32,8 @@ import (
 	"github.com/your-org/etcd-k8s-operator/pkg/utils"
 )
 
+// 自动化测试开发的 ETCD Operator 在模拟环境中是否能正确地工作
+// Context定义了一个测试上下文, It为一个test case
 var _ = Describe("EtcdCluster Controller", func() {
 	Context("When creating an EtcdCluster", func() {
 		It("Should create the necessary resources", func() {
