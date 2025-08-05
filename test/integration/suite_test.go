@@ -57,11 +57,14 @@ func TestControllers(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	// 1. 设置日志
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	ctx, cancel = context.WithCancel(context.TODO())
 
 	By("bootstrapping test environment")
+
+	// 2. 创建并启动 envtest 环境
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
@@ -81,16 +84,17 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
+	// 3. 将 Operator 的 API 类型添加到 Scheme
 	err = etcdv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
-
+	// 4. 创建 Kubernetes 客户端
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
 
-	// Start the manager
+	// 5. 创建并启动 Controller Manager
 	k8sManager, err := manager.New(cfg, manager.Options{
 		Scheme: scheme.Scheme,
 		Metrics: server.Options{
@@ -99,6 +103,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
+	// 6. 将 Operator 的所有控制器注册到 Manager
 	err = (&controller.EtcdClusterReconciler{
 		Client:   k8sManager.GetClient(),
 		Scheme:   k8sManager.GetScheme(),
@@ -118,6 +123,7 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	// 7. 在后台启动 Manager
 	go func() {
 		defer GinkgoRecover()
 		err = k8sManager.Start(ctx)

@@ -19,6 +19,16 @@
 - **[多节点实现方案](design/MULTINODE_IMPLEMENTATION.md)** - 多节点集群架构设计
 - **[Bitnami etcd 支持](design/BITNAMI_ETCD_SUPPORT.md)** - Bitnami 镜像集成方案
 
+### 🔄 项目重构文档 (重构/)
+- **[重构管理文档](重构/REFACTORING_MASTER.md)** - 项目重构总体规划、进度跟踪和任务管理
+- **[进度总结文档](重构/PROGRESS_SUMMARY.md)** - 重构进度总结，关键指标和里程碑跟踪
+- **[架构设计文档](重构/ARCHITECTURE_DESIGN.md)** - 新的四层架构设计，分层职责定义
+- **[接口定义文档](重构/INTERFACE_DEFINITION.md)** - 各层接口和契约定义，确保单一职责原则
+- **[重构策略文档](重构/REFACTORING_STRATEGY.md)** - 渐进式重构策略，风险控制和质量保证
+- **[测试框架文档](重构/TESTING_FRAMEWORK.md)** - 新的三层测试架构，统一测试框架
+- **[测试架构指南](重构/TESTING_ARCHITECTURE_GUIDE.md)** - 三层测试架构详细实施指南，工具栈说明
+- **[当前测试分析](重构/CURRENT_TESTING_ANALYSIS.md)** - 现有测试体系问题分析和改进建议
+
 ### 📊 实现状态报告 (design/)
 - **[控制器实现完成报告](design/CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 核心控制器实现进展
 - **[扩缩容功能实现完成报告](design/SCALING_IMPLEMENTATION_COMPLETE.md)** - 动态扩缩容功能完整实现 🎉
