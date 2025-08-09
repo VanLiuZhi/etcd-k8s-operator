@@ -53,8 +53,11 @@ func (cm *configMapManager) Ensure(ctx context.Context, cluster *etcdv1alpha1.Et
 
 	if errors.IsNotFound(err) {
 		// 不存在，创建新的
-		if err := ctrl.SetControllerReference(cluster, desired, cm.k8sClient.GetClient().Scheme()); err != nil {
-			return err
+		// 设置ControllerReference（如果客户端支持）
+		if client := cm.k8sClient.GetClient(); client != nil {
+			if err := ctrl.SetControllerReference(cluster, desired, client.Scheme()); err != nil {
+				return err
+			}
 		}
 		return cm.k8sClient.Create(ctx, desired)
 	} else if err != nil {
