@@ -1,0 +1,70 @@
+# 测试报告摘要
+
+生成时间: 2025-08-09 23:49:26
+
+## 单元测试结果
+
+### 覆盖率统计
+```
+github.com/your-org/etcd-k8s-operator/pkg/resource/configmap_manager.go:38:	NewConfigMapManager		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/configmap_manager.go:45:	Ensure				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/configmap_manager.go:73:	Get				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/configmap_manager.go:83:	Update				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/configmap_manager.go:92:	Delete				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/configmap_manager.go:104:	GenerateEtcdConfig		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/configmap_manager.go:112:	needsUpdate			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/manager.go:37:		NewResourceManager		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/manager.go:48:		EnsureAllResources		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/manager.go:68:		CleanupResources		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/manager.go:96:		StatefulSet			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/manager.go:101:		Service				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/manager.go:106:		ConfigMap			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/manager.go:111:		PVC				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/pvc_manager.go:36:		NewPVCManager			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/pvc_manager.go:43:		List				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/pvc_manager.go:65:		CleanupExtra			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/pvc_manager.go:82:		CleanupAll			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:39:	NewServiceManager		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:46:	EnsureServices			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:61:	EnsureClientService		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:66:	EnsurePeerService		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:71:	ensureService			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:102:	Get				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:122:	Delete				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:134:	GetServiceEndpoints		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go:146:	needsServiceUpdate		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go:38:	NewStatefulSetManager		100.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go:45:	Ensure				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go:50:	EnsureWithReplicas		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go:85:	Get				100.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go:95:	Update				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go:105:	Delete				0.0%
+github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go:122:	GetStatus			83.3%
+github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go:146:	NeedsUpdate			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:42:	NewClusterService		100.0%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:53:	SetDefaults			62.5%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:71:	ValidateClusterSpec		88.9%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:96:	InitializeCluster		80.0%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:118:	CreateCluster			75.0%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:159:	IsClusterReady			87.5%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:179:	GetClusterStatus		0.0%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:193:	UpdateClusterStatus		100.0%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:198:	DeleteCluster			0.0%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:213:	handleMultiNodeClusterCreation	100.0%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:221:	updateStatusWithError		83.3%
+github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go:235:	setCondition			0.0%
+total:										(statements)			24.2%
+```
+
+## 报告文件
+
+- [单元测试覆盖率HTML报告](unit-coverage.html)
+- [单元测试覆盖率统计](unit-coverage-summary.txt)
+- [单元测试日志](unit-test.log)
+
+## 使用说明
+
+1. 打开 `unit-coverage.html` 查看详细的代码覆盖率
+2. 查看 `unit-coverage-summary.txt` 了解覆盖率统计
+3. 如有测试失败，查看对应的日志文件
+

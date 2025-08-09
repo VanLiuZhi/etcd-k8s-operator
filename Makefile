@@ -171,6 +171,17 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
 
+##@ Refactored Testing
+
+.PHONY: test-unit
+test-unit: ## Run unit tests only (new refactored tests)
+	go test ./test/unit/... -v -coverprofile=unit.out
+
+.PHONY: test-unit-coverage
+test-unit-coverage: test-unit ## Generate unit test coverage report
+	go tool cover -html=unit.out -o unit-coverage.html
+	@echo "Unit test coverage report generated: unit-coverage.html"
+
 ##@ Deployment
 
 ifndef ignore-not-found

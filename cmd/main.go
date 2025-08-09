@@ -123,11 +123,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controller.EtcdClusterReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("etcdcluster-controller"),
-	}).SetupWithManager(mgr); err != nil {
+	// 使用新的重构后的控制器
+	clusterController := controller.NewClusterController(
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		mgr.GetEventRecorderFor("etcdcluster-controller"),
+	)
+	if err = clusterController.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "EtcdCluster")
 		os.Exit(1)
 	}

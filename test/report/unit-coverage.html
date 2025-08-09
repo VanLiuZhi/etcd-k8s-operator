@@ -1,0 +1,1041 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>resource: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/your-org/etcd-k8s-operator/pkg/resource/configmap_manager.go (0.0%)</option>
+				
+				<option value="file1">github.com/your-org/etcd-k8s-operator/pkg/resource/manager.go (0.0%)</option>
+				
+				<option value="file2">github.com/your-org/etcd-k8s-operator/pkg/resource/pvc_manager.go (0.0%)</option>
+				
+				<option value="file3">github.com/your-org/etcd-k8s-operator/pkg/resource/service_manager.go (0.0%)</option>
+				
+				<option value="file4">github.com/your-org/etcd-k8s-operator/pkg/resource/statefulset_manager.go (19.1%)</option>
+				
+				<option value="file5">github.com/your-org/etcd-k8s-operator/pkg/service/cluster_service.go (68.8%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package resource
+
+import (
+        "context"
+
+        corev1 "k8s.io/api/core/v1"
+        "k8s.io/apimachinery/pkg/api/errors"
+        "k8s.io/apimachinery/pkg/types"
+        ctrl "sigs.k8s.io/controller-runtime"
+
+        etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+        "github.com/your-org/etcd-k8s-operator/pkg/client"
+        "github.com/your-org/etcd-k8s-operator/pkg/k8s"
+)
+
+// configMapManager ConfigMap 管理器实现
+type configMapManager struct {
+        k8sClient client.KubernetesClient
+}
+
+// NewConfigMapManager 创建 ConfigMap 管理器
+func NewConfigMapManager(k8sClient client.KubernetesClient) ConfigMapManager <span class="cov0" title="0">{
+        return &amp;configMapManager{
+                k8sClient: k8sClient,
+        }
+}</span>
+
+// Ensure 确保 ConfigMap 存在
+func (cm *configMapManager) Ensure(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        desired := k8s.BuildConfigMap(cluster)
+
+        existing := &amp;corev1.ConfigMap{}
+        err := cm.k8sClient.Get(ctx, types.NamespacedName{
+                Name:      desired.Name,
+                Namespace: desired.Namespace,
+        }, existing)
+
+        if errors.IsNotFound(err) </span><span class="cov0" title="0">{
+                // 不存在，创建新的
+                if err := ctrl.SetControllerReference(cluster, desired, cm.k8sClient.GetClient().Scheme()); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov0" title="0">return cm.k8sClient.Create(ctx, desired)</span>
+        } else<span class="cov0" title="0"> if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        // 已存在，检查是否需要更新
+        <span class="cov0" title="0">if cm.needsUpdate(existing, desired) </span><span class="cov0" title="0">{
+                return cm.Update(ctx, existing, desired)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// Get 获取 ConfigMap
+func (cm *configMapManager) Get(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (*corev1.ConfigMap, error) <span class="cov0" title="0">{
+        configMap := &amp;corev1.ConfigMap{}
+        err := cm.k8sClient.Get(ctx, types.NamespacedName{
+                Name:      cluster.Name + "-config",
+                Namespace: cluster.Namespace,
+        }, configMap)
+        return configMap, err
+}</span>
+
+// Update 更新 ConfigMap
+func (cm *configMapManager) Update(ctx context.Context, existing *corev1.ConfigMap, desired *corev1.ConfigMap) error <span class="cov0" title="0">{
+        existing.Data = desired.Data
+        existing.Labels = desired.Labels
+        existing.Annotations = desired.Annotations
+
+        return cm.k8sClient.Update(ctx, existing)
+}</span>
+
+// Delete 删除 ConfigMap
+func (cm *configMapManager) Delete(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        configMap, err := cm.Get(ctx, cluster)
+        if errors.IsNotFound(err) </span><span class="cov0" title="0">{
+                return nil // 已经不存在
+        }</span> else<span class="cov0" title="0"> if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov0" title="0">return cm.k8sClient.Delete(ctx, configMap)</span>
+}
+
+// GenerateEtcdConfig 生成 etcd 配置
+func (cm *configMapManager) GenerateEtcdConfig(cluster *etcdv1alpha1.EtcdCluster) (map[string]string, error) <span class="cov0" title="0">{
+        // TODO: 实现配置生成逻辑
+        return map[string]string{
+                "etcd.conf": "# etcd configuration",
+        }, nil
+}</span>
+
+// needsUpdate 检查是否需要更新
+func (cm *configMapManager) needsUpdate(existing, desired *corev1.ConfigMap) bool <span class="cov0" title="0">{
+        // 检查数据
+        if len(existing.Data) != len(desired.Data) </span><span class="cov0" title="0">{
+                return true
+        }</span>
+
+        <span class="cov0" title="0">for key, existingValue := range existing.Data </span><span class="cov0" title="0">{
+                if desiredValue, exists := desired.Data[key]; !exists || existingValue != desiredValue </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package resource
+
+import (
+        "context"
+        "fmt"
+
+        etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+        "github.com/your-org/etcd-k8s-operator/pkg/client"
+)
+
+// resourceManager 资源管理器实现
+type resourceManager struct {
+        k8sClient      client.KubernetesClient
+        statefulSetMgr StatefulSetManager
+        serviceMgr     ServiceManager
+        configMapMgr   ConfigMapManager
+        pvcMgr         PVCManager
+}
+
+// NewResourceManager 创建资源管理器实例
+func NewResourceManager(k8sClient client.KubernetesClient) ResourceManager <span class="cov0" title="0">{
+        return &amp;resourceManager{
+                k8sClient:      k8sClient,
+                statefulSetMgr: NewStatefulSetManager(k8sClient),
+                serviceMgr:     NewServiceManager(k8sClient),
+                configMapMgr:   NewConfigMapManager(k8sClient),
+                pvcMgr:         NewPVCManager(k8sClient),
+        }
+}</span>
+
+// EnsureAllResources 确保所有资源存在
+func (rm *resourceManager) EnsureAllResources(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        // 1. 确保 ConfigMap
+        if err := rm.configMapMgr.Ensure(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to ensure ConfigMap: %w", err)
+        }</span>
+
+        // 2. 确保 Services
+        <span class="cov0" title="0">if err := rm.serviceMgr.EnsureServices(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to ensure Services: %w", err)
+        }</span>
+
+        // 3. 确保 StatefulSet
+        <span class="cov0" title="0">if err := rm.statefulSetMgr.Ensure(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to ensure StatefulSet: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// CleanupResources 清理资源
+func (rm *resourceManager) CleanupResources(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        // 1. 删除 StatefulSet
+        if err := rm.statefulSetMgr.Delete(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to delete StatefulSet: %w", err)
+        }</span>
+
+        // 2. 删除 Services
+        <span class="cov0" title="0">if err := rm.serviceMgr.Delete(ctx, cluster, "client"); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to delete client service: %w", err)
+        }</span>
+        <span class="cov0" title="0">if err := rm.serviceMgr.Delete(ctx, cluster, "peer"); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to delete peer service: %w", err)
+        }</span>
+
+        // 3. 删除 ConfigMap
+        <span class="cov0" title="0">if err := rm.configMapMgr.Delete(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to delete ConfigMap: %w", err)
+        }</span>
+
+        // 4. 清理 PVCs (可选，根据策略决定)
+        <span class="cov0" title="0">if err := rm.pvcMgr.CleanupAll(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to cleanup PVCs: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// StatefulSet 获取 StatefulSet 管理器
+func (rm *resourceManager) StatefulSet() StatefulSetManager <span class="cov0" title="0">{
+        return rm.statefulSetMgr
+}</span>
+
+// Service 获取 Service 管理器
+func (rm *resourceManager) Service() ServiceManager <span class="cov0" title="0">{
+        return rm.serviceMgr
+}</span>
+
+// ConfigMap 获取 ConfigMap 管理器
+func (rm *resourceManager) ConfigMap() ConfigMapManager <span class="cov0" title="0">{
+        return rm.configMapMgr
+}</span>
+
+// PVC 获取 PVC 管理器
+func (rm *resourceManager) PVC() PVCManager <span class="cov0" title="0">{
+        return rm.pvcMgr
+}</span>
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package resource
+
+import (
+        "context"
+
+        corev1 "k8s.io/api/core/v1"
+        "sigs.k8s.io/controller-runtime/pkg/client"
+
+        etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+        clientpkg "github.com/your-org/etcd-k8s-operator/pkg/client"
+        "github.com/your-org/etcd-k8s-operator/pkg/utils"
+)
+
+// pvcManager PVC 管理器实现
+type pvcManager struct {
+        k8sClient clientpkg.KubernetesClient
+}
+
+// NewPVCManager 创建 PVC 管理器
+func NewPVCManager(k8sClient clientpkg.KubernetesClient) PVCManager <span class="cov0" title="0">{
+        return &amp;pvcManager{
+                k8sClient: k8sClient,
+        }
+}</span>
+
+// List 列出 PVC
+func (pm *pvcManager) List(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) ([]corev1.PersistentVolumeClaim, error) <span class="cov0" title="0">{
+        pvcList := &amp;corev1.PersistentVolumeClaimList{}
+
+        // 使用标签选择器查找相关的 PVC
+        labelSelector := client.MatchingLabels{
+                utils.LabelAppName:     "etcd",
+                utils.LabelAppInstance: cluster.Name,
+        }
+
+        err := pm.k8sClient.List(ctx, pvcList,
+                client.InNamespace(cluster.Namespace),
+                labelSelector,
+        )
+
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">return pvcList.Items, nil</span>
+}
+
+// CleanupExtra 清理多余的 PVC
+func (pm *pvcManager) CleanupExtra(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, currentSize int32) error <span class="cov0" title="0">{
+        pvcs, err := pm.List(ctx, cluster)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        // 删除超出当前大小的 PVC
+        <span class="cov0" title="0">for _, pvc := range pvcs </span><span class="cov0" title="0">{
+                // 从 PVC 名称中提取索引 (格式: data-clustername-N)
+                // TODO: 实现 PVC 索引提取和清理逻辑
+                _ = pvc
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// CleanupAll 清理所有 PVC
+func (pm *pvcManager) CleanupAll(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        pvcs, err := pm.List(ctx, cluster)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        // 删除所有相关的 PVC
+        <span class="cov0" title="0">for _, pvc := range pvcs </span><span class="cov0" title="0">{
+                if err := pm.k8sClient.Delete(ctx, &amp;pvc); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package resource
+
+import (
+        "context"
+        "fmt"
+
+        corev1 "k8s.io/api/core/v1"
+        "k8s.io/apimachinery/pkg/api/errors"
+        "k8s.io/apimachinery/pkg/types"
+        ctrl "sigs.k8s.io/controller-runtime"
+
+        etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+        "github.com/your-org/etcd-k8s-operator/pkg/client"
+        "github.com/your-org/etcd-k8s-operator/pkg/k8s"
+)
+
+// serviceManager Service 管理器实现
+type serviceManager struct {
+        k8sClient client.KubernetesClient
+}
+
+// NewServiceManager 创建 Service 管理器
+func NewServiceManager(k8sClient client.KubernetesClient) ServiceManager <span class="cov0" title="0">{
+        return &amp;serviceManager{
+                k8sClient: k8sClient,
+        }
+}</span>
+
+// EnsureServices 确保所有服务存在
+func (sm *serviceManager) EnsureServices(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        // 确保客户端服务
+        if err := sm.EnsureClientService(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to ensure client service: %w", err)
+        }</span>
+
+        // 确保对等服务
+        <span class="cov0" title="0">if err := sm.EnsurePeerService(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to ensure peer service: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// EnsureClientService 确保客户端服务存在
+func (sm *serviceManager) EnsureClientService(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        return sm.ensureService(ctx, cluster, "client", k8s.BuildClientService(cluster))
+}</span>
+
+// EnsurePeerService 确保对等服务存在
+func (sm *serviceManager) EnsurePeerService(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        return sm.ensureService(ctx, cluster, "peer", k8s.BuildPeerService(cluster))
+}</span>
+
+// ensureService 确保服务存在的通用方法
+func (sm *serviceManager) ensureService(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, serviceType string, desired *corev1.Service) error <span class="cov0" title="0">{
+        existing := &amp;corev1.Service{}
+        err := sm.k8sClient.Get(ctx, types.NamespacedName{
+                Name:      desired.Name,
+                Namespace: desired.Namespace,
+        }, existing)
+
+        if errors.IsNotFound(err) </span><span class="cov0" title="0">{
+                // 不存在，创建新的
+                if err := ctrl.SetControllerReference(cluster, desired, sm.k8sClient.GetClient().Scheme()); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov0" title="0">return sm.k8sClient.Create(ctx, desired)</span>
+        } else<span class="cov0" title="0"> if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        // 已存在，检查是否需要更新
+        <span class="cov0" title="0">if sm.needsServiceUpdate(existing, desired) </span><span class="cov0" title="0">{
+                existing.Spec.Ports = desired.Spec.Ports
+                existing.Spec.Selector = desired.Spec.Selector
+                existing.Labels = desired.Labels
+                existing.Annotations = desired.Annotations
+
+                return sm.k8sClient.Update(ctx, existing)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// Get 获取服务
+func (sm *serviceManager) Get(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, serviceType string) (*corev1.Service, error) <span class="cov0" title="0">{
+        var serviceName string
+        switch serviceType </span>{
+        case "client":<span class="cov0" title="0">
+                serviceName = cluster.Name + "-client"</span>
+        case "peer":<span class="cov0" title="0">
+                serviceName = cluster.Name</span>
+        default:<span class="cov0" title="0">
+                return nil, fmt.Errorf("unknown service type: %s", serviceType)</span>
+        }
+
+        <span class="cov0" title="0">svc := &amp;corev1.Service{}
+        err := sm.k8sClient.Get(ctx, types.NamespacedName{
+                Name:      serviceName,
+                Namespace: cluster.Namespace,
+        }, svc)
+        return svc, err</span>
+}
+
+// Delete 删除服务
+func (sm *serviceManager) Delete(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, serviceType string) error <span class="cov0" title="0">{
+        svc, err := sm.Get(ctx, cluster, serviceType)
+        if errors.IsNotFound(err) </span><span class="cov0" title="0">{
+                return nil // 已经不存在
+        }</span> else<span class="cov0" title="0"> if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov0" title="0">return sm.k8sClient.Delete(ctx, svc)</span>
+}
+
+// GetServiceEndpoints 获取服务端点
+func (sm *serviceManager) GetServiceEndpoints(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) ([]string, error) <span class="cov0" title="0">{
+        // TODO: 实现获取服务端点的逻辑
+        endpoints := make([]string, 0, cluster.Spec.Size)
+        for i := int32(0); i &lt; cluster.Spec.Size; i++ </span><span class="cov0" title="0">{
+                endpoint := fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local:2379",
+                        cluster.Name, i, cluster.Name, cluster.Namespace)
+                endpoints = append(endpoints, endpoint)
+        }</span>
+        <span class="cov0" title="0">return endpoints, nil</span>
+}
+
+// needsServiceUpdate 检查服务是否需要更新
+func (sm *serviceManager) needsServiceUpdate(existing, desired *corev1.Service) bool <span class="cov0" title="0">{
+        // 检查端口
+        if len(existing.Spec.Ports) != len(desired.Spec.Ports) </span><span class="cov0" title="0">{
+                return true
+        }</span>
+
+        <span class="cov0" title="0">for i, existingPort := range existing.Spec.Ports </span><span class="cov0" title="0">{
+                if i &gt;= len(desired.Spec.Ports) </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+                <span class="cov0" title="0">desiredPort := desired.Spec.Ports[i]
+                if existingPort.Port != desiredPort.Port ||
+                        existingPort.TargetPort != desiredPort.TargetPort ||
+                        existingPort.Protocol != desiredPort.Protocol </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        // 检查选择器
+        <span class="cov0" title="0">if len(existing.Spec.Selector) != len(desired.Spec.Selector) </span><span class="cov0" title="0">{
+                return true
+        }</span>
+
+        <span class="cov0" title="0">for key, existingValue := range existing.Spec.Selector </span><span class="cov0" title="0">{
+                if desiredValue, exists := desired.Spec.Selector[key]; !exists || existingValue != desiredValue </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package resource
+
+import (
+        "context"
+
+        appsv1 "k8s.io/api/apps/v1"
+        "k8s.io/apimachinery/pkg/api/errors"
+        "k8s.io/apimachinery/pkg/types"
+        ctrl "sigs.k8s.io/controller-runtime"
+
+        etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+        "github.com/your-org/etcd-k8s-operator/pkg/client"
+        "github.com/your-org/etcd-k8s-operator/pkg/k8s"
+)
+
+// statefulSetManager StatefulSet 管理器实现
+type statefulSetManager struct {
+        k8sClient client.KubernetesClient
+}
+
+// NewStatefulSetManager 创建 StatefulSet 管理器
+func NewStatefulSetManager(k8sClient client.KubernetesClient) StatefulSetManager <span class="cov8" title="1">{
+        return &amp;statefulSetManager{
+                k8sClient: k8sClient,
+        }
+}</span>
+
+// Ensure 确保 StatefulSet 存在
+func (sm *statefulSetManager) Ensure(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        return sm.EnsureWithReplicas(ctx, cluster, cluster.Spec.Size)
+}</span>
+
+// EnsureWithReplicas 确保 StatefulSet 存在并设置副本数
+func (sm *statefulSetManager) EnsureWithReplicas(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, replicas int32) error <span class="cov0" title="0">{
+        // 构建期望的 StatefulSet
+        var desired *appsv1.StatefulSet
+        if replicas == cluster.Spec.Size </span><span class="cov0" title="0">{
+                desired = k8s.BuildStatefulSet(cluster)
+        }</span> else<span class="cov0" title="0"> {
+                desired = k8s.BuildStatefulSetWithReplicas(cluster, replicas)
+        }</span>
+
+        // 检查是否已存在
+        <span class="cov0" title="0">existing := &amp;appsv1.StatefulSet{}
+        err := sm.k8sClient.Get(ctx, types.NamespacedName{
+                Name:      desired.Name,
+                Namespace: desired.Namespace,
+        }, existing)
+
+        if errors.IsNotFound(err) </span><span class="cov0" title="0">{
+                // 不存在，创建新的
+                if err := ctrl.SetControllerReference(cluster, desired, sm.k8sClient.GetClient().Scheme()); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov0" title="0">return sm.k8sClient.Create(ctx, desired)</span>
+        } else<span class="cov0" title="0"> if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        // 已存在，检查是否需要更新
+        <span class="cov0" title="0">if sm.NeedsUpdate(existing, desired) </span><span class="cov0" title="0">{
+                return sm.Update(ctx, existing, desired)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// Get 获取 StatefulSet
+func (sm *statefulSetManager) Get(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (*appsv1.StatefulSet, error) <span class="cov8" title="1">{
+        sts := &amp;appsv1.StatefulSet{}
+        err := sm.k8sClient.Get(ctx, types.NamespacedName{
+                Name:      cluster.Name,
+                Namespace: cluster.Namespace,
+        }, sts)
+        return sts, err
+}</span>
+
+// Update 更新 StatefulSet
+func (sm *statefulSetManager) Update(ctx context.Context, existing *appsv1.StatefulSet, desired *appsv1.StatefulSet) error <span class="cov0" title="0">{
+        // 保留一些不应该更新的字段
+        existing.Spec = desired.Spec
+        existing.Labels = desired.Labels
+        existing.Annotations = desired.Annotations
+
+        return sm.k8sClient.Update(ctx, existing)
+}</span>
+
+// Delete 删除 StatefulSet
+func (sm *statefulSetManager) Delete(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov0" title="0">{
+        sts := &amp;appsv1.StatefulSet{}
+        err := sm.k8sClient.Get(ctx, types.NamespacedName{
+                Name:      cluster.Name,
+                Namespace: cluster.Namespace,
+        }, sts)
+
+        if errors.IsNotFound(err) </span><span class="cov0" title="0">{
+                return nil // 已经不存在
+        }</span> else<span class="cov0" title="0"> if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov0" title="0">return sm.k8sClient.Delete(ctx, sts)</span>
+}
+
+// GetStatus 获取 StatefulSet 状态
+func (sm *statefulSetManager) GetStatus(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (*StatefulSetStatus, error) <span class="cov8" title="1">{
+        sts, err := sm.Get(ctx, cluster)
+        if err != nil </span><span class="cov8" title="1">{
+                if errors.IsNotFound(err) </span><span class="cov8" title="1">{
+                        // StatefulSet 还没有创建，返回零值状态
+                        return &amp;StatefulSetStatus{
+                                Replicas:        0,
+                                ReadyReplicas:   0,
+                                CurrentReplicas: 0,
+                                UpdatedReplicas: 0,
+                        }, nil
+                }</span>
+                <span class="cov0" title="0">return nil, err</span>
+        }
+
+        <span class="cov8" title="1">return &amp;StatefulSetStatus{
+                Replicas:        sts.Status.Replicas,
+                ReadyReplicas:   sts.Status.ReadyReplicas,
+                CurrentReplicas: sts.Status.CurrentReplicas,
+                UpdatedReplicas: sts.Status.UpdatedReplicas,
+        }, nil</span>
+}
+
+// NeedsUpdate 检查是否需要更新
+func (sm *statefulSetManager) NeedsUpdate(existing, desired *appsv1.StatefulSet) bool <span class="cov0" title="0">{
+        // 检查副本数
+        if *existing.Spec.Replicas != *desired.Spec.Replicas </span><span class="cov0" title="0">{
+                return true
+        }</span>
+
+        // 检查镜像版本
+        <span class="cov0" title="0">if len(existing.Spec.Template.Spec.Containers) &gt; 0 &amp;&amp; len(desired.Spec.Template.Spec.Containers) &gt; 0 </span><span class="cov0" title="0">{
+                if existing.Spec.Template.Spec.Containers[0].Image != desired.Spec.Template.Spec.Containers[0].Image </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        // 检查资源限制
+        <span class="cov0" title="0">existingResources := existing.Spec.Template.Spec.Containers[0].Resources
+        desiredResources := desired.Spec.Template.Spec.Containers[0].Resources
+
+        if !existingResources.Requests.Memory().Equal(*desiredResources.Requests.Memory()) ||
+                !existingResources.Requests.Cpu().Equal(*desiredResources.Requests.Cpu()) </span><span class="cov0" title="0">{
+                return true
+        }</span>
+
+        // TODO: 添加更多需要检查的字段
+
+        <span class="cov0" title="0">return false</span>
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package service
+
+import (
+        "context"
+        "fmt"
+        "time"
+
+        "k8s.io/apimachinery/pkg/api/resource"
+        metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+        ctrl "sigs.k8s.io/controller-runtime"
+        "sigs.k8s.io/controller-runtime/pkg/log"
+
+        etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+        "github.com/your-org/etcd-k8s-operator/pkg/client"
+        resourcepkg "github.com/your-org/etcd-k8s-operator/pkg/resource"
+        "github.com/your-org/etcd-k8s-operator/pkg/utils"
+)
+
+// clusterService 集群管理服务实现
+type clusterService struct {
+        k8sClient       client.KubernetesClient
+        resourceManager resourcepkg.ResourceManager
+}
+
+// NewClusterService 创建集群服务实例
+func NewClusterService(
+        k8sClient client.KubernetesClient,
+        resourceManager resourcepkg.ResourceManager,
+) ClusterService <span class="cov8" title="1">{
+        return &amp;clusterService{
+                k8sClient:       k8sClient,
+                resourceManager: resourceManager,
+        }
+}</span>
+
+// SetDefaults 设置默认值
+func (s *clusterService) SetDefaults(cluster *etcdv1alpha1.EtcdCluster) <span class="cov8" title="1">{
+        // 不再强制设置Size默认值，允许size=0用于集群删除
+        // 只有在创建新集群时才设置默认值
+        if cluster.Spec.Size == 0 &amp;&amp; cluster.Status.Phase == "" </span><span class="cov8" title="1">{
+                cluster.Spec.Size = utils.DefaultClusterSize
+        }</span>
+        <span class="cov8" title="1">if cluster.Spec.Version == "" </span><span class="cov0" title="0">{
+                cluster.Spec.Version = utils.DefaultEtcdVersion
+        }</span>
+        <span class="cov8" title="1">if cluster.Spec.Repository == "" </span><span class="cov0" title="0">{
+                cluster.Spec.Repository = utils.DefaultEtcdRepository
+        }</span>
+        <span class="cov8" title="1">if cluster.Spec.Storage.Size.IsZero() </span><span class="cov0" title="0">{
+                cluster.Spec.Storage.Size = resource.MustParse(utils.DefaultStorageSize)
+        }</span>
+}
+
+// ValidateClusterSpec 验证集群规范
+func (s *clusterService) ValidateClusterSpec(cluster *etcdv1alpha1.EtcdCluster) error <span class="cov8" title="1">{
+        // 验证集群大小
+        if cluster.Spec.Size &lt; 0 </span><span class="cov8" title="1">{
+                return fmt.Errorf("cluster size cannot be negative")
+        }</span>
+
+        // 验证奇数大小（etcd要求）
+        <span class="cov8" title="1">if cluster.Spec.Size &gt; 1 &amp;&amp; cluster.Spec.Size%2 == 0 </span><span class="cov8" title="1">{
+                return fmt.Errorf("cluster size must be odd for multi-node clusters")
+        }</span>
+
+        // 验证版本格式
+        <span class="cov8" title="1">if cluster.Spec.Version == "" </span><span class="cov8" title="1">{
+                return fmt.Errorf("etcd version cannot be empty")
+        }</span>
+
+        // 验证存储大小
+        <span class="cov8" title="1">if cluster.Spec.Storage.Size.IsZero() </span><span class="cov0" title="0">{
+                return fmt.Errorf("storage size cannot be zero")
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+// InitializeCluster 初始化集群
+func (s *clusterService) InitializeCluster(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) <span class="cov8" title="1">{
+        logger := log.FromContext(ctx)
+
+        // 验证集群规范
+        if err := s.ValidateClusterSpec(cluster); err != nil </span><span class="cov0" title="0">{
+                logger.Error(err, "Cluster specification validation failed")
+                return s.updateStatusWithError(ctx, cluster, etcdv1alpha1.EtcdClusterPhaseFailed, err)
+        }</span>
+
+        // 设置初始状态
+        <span class="cov8" title="1">cluster.Status.Phase = etcdv1alpha1.EtcdClusterPhaseCreating
+        s.setCondition(cluster, utils.ConditionTypeProgressing, metav1.ConditionTrue, utils.ReasonCreating, "Starting cluster creation")
+
+        if err := s.UpdateClusterStatus(ctx, cluster); err != nil </span><span class="cov8" title="1">{
+                return ctrl.Result{}, err
+        }</span>
+
+        <span class="cov8" title="1">logger.Info("Cluster initialization completed, transitioning to creating phase")
+        return ctrl.Result{Requeue: true}, nil</span>
+}
+
+// CreateCluster 创建集群
+func (s *clusterService) CreateCluster(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) <span class="cov8" title="1">{
+        logger := log.FromContext(ctx)
+
+        // 1. 创建必要的 Kubernetes 资源
+        if err := s.resourceManager.EnsureAllResources(ctx, cluster); err != nil </span><span class="cov8" title="1">{
+                logger.Error(err, "Failed to ensure resources")
+                return s.updateStatusWithError(ctx, cluster, etcdv1alpha1.EtcdClusterPhaseFailed, err)
+        }</span>
+
+        // 2. 对于多节点集群，使用渐进式启动策略
+        <span class="cov8" title="1">if cluster.Spec.Size &gt; 1 </span><span class="cov8" title="1">{
+                return s.handleMultiNodeClusterCreation(ctx, cluster)
+        }</span>
+
+        // 3. 单节点集群的处理逻辑
+        <span class="cov8" title="1">ready, err := s.IsClusterReady(ctx, cluster)
+        if err != nil </span><span class="cov0" title="0">{
+                logger.Error(err, "Failed to check cluster readiness")
+                return s.updateStatusWithError(ctx, cluster, etcdv1alpha1.EtcdClusterPhaseFailed, err)
+        }</span>
+
+        <span class="cov8" title="1">if ready </span><span class="cov8" title="1">{
+                // 转换到运行状态
+                cluster.Status.Phase = etcdv1alpha1.EtcdClusterPhaseRunning
+                s.setCondition(cluster, utils.ConditionTypeReady, metav1.ConditionTrue, utils.ReasonRunning, "Etcd cluster is running")
+                s.setCondition(cluster, utils.ConditionTypeProgressing, metav1.ConditionFalse, utils.ReasonRunning, "Etcd cluster creation completed")
+
+                if err := s.UpdateClusterStatus(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                        return ctrl.Result{}, err
+                }</span>
+
+                <span class="cov8" title="1">logger.Info("Single-node cluster is ready, transitioning to running phase")
+                return ctrl.Result{}, nil</span>
+        }
+
+        // 集群还未就绪，继续等待
+        <span class="cov0" title="0">logger.Info("Cluster is not ready yet, requeuing")
+        return ctrl.Result{RequeueAfter: 30 * time.Second}, nil</span>
+}
+
+// IsClusterReady 检查集群是否就绪
+func (s *clusterService) IsClusterReady(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (bool, error) <span class="cov8" title="1">{
+        status, err := s.resourceManager.StatefulSet().GetStatus(ctx, cluster)
+        if err != nil </span><span class="cov8" title="1">{
+                return false, err
+        }</span>
+
+        // 检查副本数是否匹配
+        <span class="cov8" title="1">if status.ReadyReplicas != cluster.Spec.Size </span><span class="cov8" title="1">{
+                return false, nil
+        }</span>
+
+        // 检查所有副本是否就绪
+        <span class="cov8" title="1">if status.ReadyReplicas != status.Replicas </span><span class="cov0" title="0">{
+                return false, nil
+        }</span>
+
+        <span class="cov8" title="1">return true, nil</span>
+}
+
+// GetClusterStatus 获取集群状态
+func (s *clusterService) GetClusterStatus(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (*ClusterStatus, error) <span class="cov0" title="0">{
+        stsStatus, err := s.resourceManager.StatefulSet().GetStatus(ctx, cluster)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">return &amp;ClusterStatus{
+                Phase:         string(cluster.Status.Phase),
+                ReadyReplicas: stsStatus.ReadyReplicas,
+                // TODO: 添加更多状态信息
+        }, nil</span>
+}
+
+// UpdateClusterStatus 更新集群状态
+func (s *clusterService) UpdateClusterStatus(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error <span class="cov8" title="1">{
+        return s.k8sClient.UpdateStatus(ctx, cluster)
+}</span>
+
+// DeleteCluster 删除集群
+func (s *clusterService) DeleteCluster(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) <span class="cov0" title="0">{
+        logger := log.FromContext(ctx)
+        logger.Info("Starting cluster deletion")
+
+        // 清理资源
+        if err := s.resourceManager.CleanupResources(ctx, cluster); err != nil </span><span class="cov0" title="0">{
+                logger.Error(err, "Failed to cleanup resources")
+                return ctrl.Result{}, err
+        }</span>
+
+        <span class="cov0" title="0">logger.Info("Cluster deletion completed")
+        return ctrl.Result{}, nil</span>
+}
+
+// handleMultiNodeClusterCreation 处理多节点集群创建
+func (s *clusterService) handleMultiNodeClusterCreation(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) <span class="cov8" title="1">{
+        // TODO: 实现多节点集群创建逻辑
+        logger := log.FromContext(ctx)
+        logger.Info("Multi-node cluster creation not yet implemented")
+        return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}</span>
+
+// updateStatusWithError 更新状态并记录错误
+func (s *clusterService) updateStatusWithError(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, phase etcdv1alpha1.EtcdClusterPhase, err error) (ctrl.Result, error) <span class="cov8" title="1">{
+        cluster.Status.Phase = phase
+        s.setCondition(cluster, utils.ConditionTypeReady, metav1.ConditionFalse, utils.ReasonFailed, err.Error())
+
+        s.k8sClient.RecordEvent(cluster, "Warning", "Failed", err.Error())
+
+        if updateErr := s.UpdateClusterStatus(ctx, cluster); updateErr != nil </span><span class="cov0" title="0">{
+                return ctrl.Result{}, updateErr
+        }</span>
+
+        <span class="cov8" title="1">return ctrl.Result{RequeueAfter: 30 * time.Second}, nil</span>
+}
+
+// setCondition 设置条件
+func (s *clusterService) setCondition(cluster *etcdv1alpha1.EtcdCluster, conditionType string, status metav1.ConditionStatus, reason, message string) {<span class="cov8" title="1">
+        // TODO: 实现条件设置逻辑
+}</span>
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
