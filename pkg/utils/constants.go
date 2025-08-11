@@ -56,24 +56,24 @@ const (
 	DefaultReconcileTimeout = 10 * time.Minute
 )
 
-// Label keys
+// 标签键定义
 const (
-	// LabelAppName is the label key for app name
+	// LabelAppName 应用名称标签键
 	LabelAppName = "app.kubernetes.io/name"
 
-	// LabelAppInstance is the label key for app instance
+	// LabelAppInstance 应用实例标签键
 	LabelAppInstance = "app.kubernetes.io/instance"
 
-	// LabelAppComponent is the label key for app component
+	// LabelAppComponent 应用组件标签键
 	LabelAppComponent = "app.kubernetes.io/component"
 
-	// LabelAppManagedBy is the label key for app managed by
+	// LabelAppManagedBy 应用管理者标签键
 	LabelAppManagedBy = "app.kubernetes.io/managed-by"
 
-	// LabelAppVersion is the label key for app version
+	// LabelAppVersion 应用版本标签键
 	LabelAppVersion = "app.kubernetes.io/version"
 
-	// LabelEtcdCluster is the label key for etcd cluster
+	// LabelEtcdCluster etcd集群标签键
 	LabelEtcdCluster = "etcd.etcd.io/cluster"
 
 	// LabelEtcdMember is the label key for etcd member

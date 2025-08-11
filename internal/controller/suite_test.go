@@ -36,8 +36,8 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
+// 这些测试使用Ginkgo（BDD风格的Go测试框架）
+// 参考 http://onsi.github.io/ginkgo/ 了解更多关于Ginkgo的信息
 
 var cfg *rest.Config
 var k8sClient client.Client
@@ -57,11 +57,10 @@ var _ = BeforeSuite(func() {
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
 
-		// The BinaryAssetsDirectory is only required if you want to run the tests directly
-		// without call the makefile target test. If not informed it will look for the
-		// default path defined in controller-runtime which is /usr/local/kubebuilder/.
-		// Note that you must have the required binaries setup under the bin directory to perform
-		// the tests directly. When we run make test it will be setup and used automatically.
+		// BinaryAssetsDirectory 只有在直接运行测试时才需要
+		// 不调用makefile的test目标。如果未指定，将查找controller-runtime中定义的默认路径
+		// 即 /usr/local/kubebuilder/。注意必须在bin目录下设置所需的二进制文件
+		// 才能直接执行测试。当运行make test时，会自动设置和使用
 		BinaryAssetsDirectory: filepath.Join("..", "..", "bin", "k8s",
 			fmt.Sprintf("1.30.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
 	}

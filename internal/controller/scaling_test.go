@@ -57,8 +57,8 @@ var _ = Describe("EtcdCluster Scaling", func() {
 				},
 				Spec: etcdv1alpha1.EtcdClusterSpec{
 					Size:       3,
-					Version:    "3.5.9",
-					Repository: "bitnami/etcd",
+					Version:    "v3.5.21",
+					Repository: "quay.io/coreos/etcd",
 					Storage: etcdv1alpha1.EtcdStorageSpec{
 						Size: resource.MustParse("1Gi"),
 					},

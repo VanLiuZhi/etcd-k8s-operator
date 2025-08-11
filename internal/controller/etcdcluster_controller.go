@@ -338,7 +338,13 @@ func (r *EtcdClusterReconciler) handleDynamicExpansion(ctx context.Context, clus
 func (r *EtcdClusterReconciler) handleRunning(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// 1. 检查是否需要扩缩容
+	// 1. 先更新集群状态，确保ReadyReplicas是最新的
+	if err := r.updateClusterStatus(ctx, cluster); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// 2. 检查是否需要扩缩容
+	logger.Info("Checking scaling needs", "currentReadyReplicas", cluster.Status.ReadyReplicas, "desiredSize", cluster.Spec.Size)
 	if r.needsScaling(cluster) {
 		logger.Info("Cluster needs scaling", "current", cluster.Status.ReadyReplicas, "desired", cluster.Spec.Size)
 		cluster.Status.Phase = etcdv1alpha1.EtcdClusterPhaseScaling
@@ -350,15 +356,10 @@ func (r *EtcdClusterReconciler) handleRunning(ctx context.Context, cluster *etcd
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// 2. 执行健康检查
+	// 3. 执行健康检查
 	if err := r.performHealthCheck(ctx, cluster); err != nil {
 		logger.Error(err, "Health check failed")
 		return r.updateStatusWithError(ctx, cluster, etcdv1alpha1.EtcdClusterPhaseFailed, err)
-	}
-
-	// 3. 更新集群状态
-	if err := r.updateClusterStatus(ctx, cluster); err != nil {
-		return ctrl.Result{}, err
 	}
 
 	// 定期重新调度进行健康检查

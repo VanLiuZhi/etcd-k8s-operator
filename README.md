@@ -77,7 +77,7 @@ metadata:
   namespace: default
 spec:
   size: 3
-  version: "3.5.9"
+  version: "v3.5.21"
   repository: "quay.io/coreos/etcd"
   storage:
     size: "10Gi"
@@ -95,27 +95,7 @@ spec:
       memory: "512Mi"
 ```
 
-#### 使用 Bitnami etcd 镜像 (推荐用于开发)
-```yaml
-apiVersion: etcd.etcd.io/v1alpha1
-kind: EtcdCluster
-metadata:
-  name: my-bitnami-cluster
-  namespace: default
-spec:
-  size: 3
-  version: "3.5.9"
-  repository: "bitnami/etcd"  # 自动配置 Kubernetes 集群模式
-  storage:
-    size: "10Gi"
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "500m"
-      memory: "512Mi"
-```
+
 
 ```bash
 kubectl apply -f etcd-cluster.yaml
@@ -139,7 +119,7 @@ kubectl get pods -l app.kubernetes.io/name=etcd,app.kubernetes.io/instance=my-et
 - [📋 项目主控文档](PROJECT_MASTER.md) - 项目概述、进度追踪、里程碑管理
 - [🔧 技术规范文档](TECHNICAL_SPECIFICATION.md) - API 设计、控制器逻辑、技术约束
 - [🧪 开发指南](DEVELOPMENT_GUIDE.md) - 开发环境、代码规范、测试指南
-- [🐳 Bitnami etcd 支持](docs/BITNAMI_ETCD_SUPPORT.md) - Bitnami etcd 镜像支持和故障排除
+
 
 ## 🛠️ 开发
 

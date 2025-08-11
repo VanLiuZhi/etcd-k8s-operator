@@ -122,7 +122,7 @@ metadata:
   namespace: $E2E_NAMESPACE
 spec:
   size: 3
-  version: "3.5.9"
+  version: "v3.5.21"
   repository: "quay.io/coreos/etcd"
   storage:
     size: "2Gi"
@@ -176,7 +176,7 @@ metadata:
   namespace: $E2E_NAMESPACE
 spec:
   size: 3
-  version: "3.5.9"
+  version: "v3.5.21"
   repository: "quay.io/coreos/etcd"
   storage:
     size: "1Gi"

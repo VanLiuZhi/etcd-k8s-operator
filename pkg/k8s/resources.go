@@ -184,9 +184,9 @@ func buildVolumeMounts(cluster *etcdv1alpha1.EtcdCluster) []corev1.VolumeMount {
 	return mounts
 }
 
-// buildEtcdEnvironment creates environment variables for etcd
+// buildEtcdEnvironment 创建etcd的环境变量
 func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster, podIndex int) []corev1.EnvVar {
-	// 基础环境变量 - 适用于官方镜像和 Bitnami 镜像
+	// 基础环境变量 - 适用于官方镜像
 	envVars := []corev1.EnvVar{
 		{
 			Name: "ETCD_NAME",
@@ -240,57 +240,14 @@ func buildEtcdEnvironment(cluster *etcdv1alpha1.EtcdCluster, podIndex int) []cor
 		Value: buildInitialClusterForNode(cluster, podIndex),
 	})
 
-	// 添加镜像特定的环境变量
-	if strings.Contains(cluster.Spec.Repository, "bitnami") {
-		// Bitnami 镜像特定配置（保持向后兼容）
-		bitnamiEnvVars := []corev1.EnvVar{
-			{
-				Name:  "ALLOW_NONE_AUTHENTICATION",
-				Value: "yes",
-			},
-			{
-				Name:  "ETCD_ROOT_PASSWORD",
-				Value: "",
-			},
-			{
-				Name:  "MY_STS_NAME",
-				Value: cluster.Name,
-			},
-			{
-				Name:  "ETCD_ON_K8S",
-				Value: "yes",
-			},
-			{
-				Name:  "ETCD_CLUSTER_DOMAIN",
-				Value: fmt.Sprintf("%s-peer.%s.svc.cluster.local", cluster.Name, cluster.Namespace),
-			},
-		}
-		envVars = append(envVars, bitnamiEnvVars...)
-	} else {
-		// 官方镜像配置 - 使用标准 etcd 环境变量
-		// 官方镜像不需要额外的环境变量，使用标准配置即可
-	}
+	// 官方镜像配置 - 使用标准 etcd 环境变量
+	// 官方镜像不需要额外的环境变量，使用标准配置即可
 
 	return envVars
 }
 
-// buildLivenessProbe creates liveness probe for etcd container
+// buildLivenessProbe 创建存活检查探针
 func buildLivenessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
-	if strings.Contains(cluster.Spec.Repository, "bitnami") {
-		// Use Bitnami's healthcheck script
-		return &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				Exec: &corev1.ExecAction{
-					Command: []string{"/opt/bitnami/scripts/etcd/healthcheck.sh"},
-				},
-			},
-			InitialDelaySeconds: 60, // Bitnami etcd takes longer to start
-			PeriodSeconds:       10,
-			TimeoutSeconds:      5,
-			FailureThreshold:    3,
-		}
-	}
-
 	// 官方镜像使用 etcdctl 进行健康检查
 	return &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
@@ -310,40 +267,8 @@ func buildLivenessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
 	}
 }
 
-// buildReadinessProbe creates readiness probe for etcd container
+// buildReadinessProbe 创建就绪检查探针
 func buildReadinessProbe(cluster *etcdv1alpha1.EtcdCluster) *corev1.Probe {
-	if strings.Contains(cluster.Spec.Repository, "bitnami") {
-		// For multi-node clusters, use a more lenient readiness probe
-		if cluster.Spec.Size > 1 {
-			// Use TCP probe to allow Pod to become ready faster
-			// This helps with DNS record creation for headless service
-			return &corev1.Probe{
-				ProbeHandler: corev1.ProbeHandler{
-					TCPSocket: &corev1.TCPSocketAction{
-						Port: intstr.FromInt(utils.EtcdClientPort),
-					},
-				},
-				InitialDelaySeconds: 15, // Shorter delay for multi-node
-				PeriodSeconds:       5,
-				TimeoutSeconds:      3,
-				FailureThreshold:    5, // More tolerant for multi-node startup
-			}
-		}
-
-		// Use Bitnami's healthcheck script for single-node clusters
-		return &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				Exec: &corev1.ExecAction{
-					Command: []string{"/opt/bitnami/scripts/etcd/healthcheck.sh"},
-				},
-			},
-			InitialDelaySeconds: 30, // Shorter delay for readiness
-			PeriodSeconds:       5,
-			TimeoutSeconds:      3,
-			FailureThreshold:    3,
-		}
-	}
-
 	// 官方镜像的就绪检查策略
 	if cluster.Spec.Size > 1 {
 		// 多节点集群使用 TCP 探针，避免循环依赖问题
@@ -600,8 +525,8 @@ func BuildPeerService(cluster *etcdv1alpha1.EtcdCluster) *corev1.Service {
 	}
 }
 
-// BuildNodePortService creates a NodePort service for external operator access
-// This service load balances to all healthy etcd nodes for stable external connections
+// BuildNodePortService 创建NodePort服务用于外部访问
+// 此服务负载均衡到所有健康的etcd节点，提供稳定的外部连接
 func BuildNodePortService(cluster *etcdv1alpha1.EtcdCluster) *corev1.Service {
 	labels := utils.LabelsForEtcdService(cluster, "nodeport")
 
@@ -631,7 +556,7 @@ func BuildNodePortService(cluster *etcdv1alpha1.EtcdCluster) *corev1.Service {
 	}
 }
 
-// BuildConfigMap creates a ConfigMap for etcd configuration
+// BuildConfigMap 创建etcd配置的ConfigMap
 func BuildConfigMap(cluster *etcdv1alpha1.EtcdCluster) *corev1.ConfigMap {
 	labels := utils.LabelsForEtcdCluster(cluster)
 
