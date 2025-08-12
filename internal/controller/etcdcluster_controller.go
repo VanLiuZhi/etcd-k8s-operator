@@ -43,6 +43,7 @@ import (
 )
 
 // EtcdClusterReconciler reconciles a EtcdCluster object
+// DEPRECATED: 使用 ClusterController 替代
 type EtcdClusterReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
@@ -64,6 +65,7 @@ type EtcdClusterReconciler struct {
 // move the current state of the cluster closer to the desired state.
 func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("etcdcluster", req.NamespacedName)
+	logger.Info("RECONCILE-FUNCTION-TEST-12345-UNIQUE-STRING")
 	logger.Info("Starting reconciliation")
 
 	// 1. 获取 EtcdCluster 实例
@@ -106,7 +108,7 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		logger.Info("Creating EtcdCluster")
 		return r.handleCreating(ctx, cluster)
 	case etcdv1alpha1.EtcdClusterPhaseRunning:
-		logger.Info("EtcdCluster is running, performing health check")
+		logger.Info("DOCKER-BUILD-TEST-12345-UNIQUE-STRING", "DEBUG_VERSION", "docker-build-test", "LINE", 109)
 		return r.handleRunning(ctx, cluster)
 	case etcdv1alpha1.EtcdClusterPhaseScaling:
 		logger.Info("Scaling EtcdCluster")
@@ -338,13 +340,20 @@ func (r *EtcdClusterReconciler) handleDynamicExpansion(ctx context.Context, clus
 func (r *EtcdClusterReconciler) handleRunning(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
+	// CRITICAL DEBUG: This should be the first line executed in handleRunning
+	logger.Info("CRITICAL DEBUG: handleRunning function started!!!")
+
 	// 1. 先更新集群状态，确保ReadyReplicas是最新的
+	logger.Info("DEBUG: About to call updateClusterStatus")
 	if err := r.updateClusterStatus(ctx, cluster); err != nil {
+		logger.Error(err, "DEBUG: updateClusterStatus failed")
 		return ctrl.Result{}, err
 	}
+	logger.Info("DEBUG: updateClusterStatus completed successfully")
 
 	// 2. 检查是否需要扩缩容
 	logger.Info("Checking scaling needs", "currentReadyReplicas", cluster.Status.ReadyReplicas, "desiredSize", cluster.Spec.Size)
+	logger.Info("DEBUG: Status after updateClusterStatus", "readyReplicas", cluster.Status.ReadyReplicas, "phase", cluster.Status.Phase)
 	if r.needsScaling(cluster) {
 		logger.Info("Cluster needs scaling", "current", cluster.Status.ReadyReplicas, "desired", cluster.Spec.Size)
 		cluster.Status.Phase = etcdv1alpha1.EtcdClusterPhaseScaling
@@ -360,6 +369,12 @@ func (r *EtcdClusterReconciler) handleRunning(ctx context.Context, cluster *etcd
 	if err := r.performHealthCheck(ctx, cluster); err != nil {
 		logger.Error(err, "Health check failed")
 		return r.updateStatusWithError(ctx, cluster, etcdv1alpha1.EtcdClusterPhaseFailed, err)
+	}
+
+	// 4. 确保状态已保存（修复：确保ReadyReplicas字段被正确保存）
+	if err := r.Status().Update(ctx, cluster); err != nil {
+		logger.Error(err, "Failed to update cluster status")
+		return ctrl.Result{}, err
 	}
 
 	// 定期重新调度进行健康检查
@@ -678,7 +693,22 @@ func (r *EtcdClusterReconciler) ensureStatefulSet(ctx context.Context, cluster *
 		if err := ctrl.SetControllerReference(cluster, desired, r.Scheme); err != nil {
 			return err
 		}
-		return r.Create(ctx, desired)
+		err := r.Create(ctx, desired)
+		if err != nil && errors.IsAlreadyExists(err) {
+			// 如果资源已存在，这可能是并发创建导致的，重新获取资源
+			if getErr := r.Get(ctx, types.NamespacedName{
+				Name:      desired.Name,
+				Namespace: desired.Namespace,
+			}, existing); getErr != nil {
+				return getErr
+			}
+			// 继续执行更新检查逻辑
+		} else if err != nil {
+			return err
+		} else {
+			// 创建成功，直接返回
+			return nil
+		}
 	} else if err != nil {
 		return err
 	}
@@ -776,7 +806,21 @@ func (r *EtcdClusterReconciler) updateClusterStatus(ctx context.Context, cluster
 	now := metav1.Now()
 	cluster.Status.LastUpdateTime = &now
 
-	return r.Status().Update(ctx, cluster)
+	// 添加调试日志
+	logger := log.FromContext(ctx)
+	logger.Info("DEBUG: About to update status",
+		"readyReplicas", cluster.Status.ReadyReplicas,
+		"phase", cluster.Status.Phase,
+		"clientEndpoints", cluster.Status.ClientEndpoints)
+
+	err = r.Status().Update(ctx, cluster)
+	if err != nil {
+		logger.Error(err, "Failed to update cluster status")
+		return err
+	}
+
+	logger.Info("DEBUG: Status updated successfully", "readyReplicas", cluster.Status.ReadyReplicas)
+	return nil
 }
 
 // updateMemberStatus updates the member status information
@@ -837,6 +881,8 @@ func (r *EtcdClusterReconciler) needsScaling(cluster *etcdv1alpha1.EtcdCluster) 
 
 // performHealthCheck performs health check on the etcd cluster
 func (r *EtcdClusterReconciler) performHealthCheck(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) error {
+	logger := log.FromContext(ctx)
+
 	// 基础健康检查：检查 StatefulSet 状态
 	sts := &appsv1.StatefulSet{}
 	err := r.Get(ctx, types.NamespacedName{
@@ -847,9 +893,15 @@ func (r *EtcdClusterReconciler) performHealthCheck(ctx context.Context, cluster 
 		return fmt.Errorf("failed to get StatefulSet: %w", err)
 	}
 
-	// 检查是否有失败的副本
-	if sts.Status.ReadyReplicas < sts.Status.Replicas {
-		return fmt.Errorf("not all replicas are ready: %d/%d", sts.Status.ReadyReplicas, sts.Status.Replicas)
+	logger.Info("Health check status",
+		"readyReplicas", sts.Status.ReadyReplicas,
+		"replicas", sts.Status.Replicas,
+		"desiredSize", cluster.Spec.Size)
+
+	// 修复：只有当没有任何就绪副本时才认为是失败
+	// 扩缩容过程中ReadyReplicas < Replicas是正常的
+	if sts.Status.ReadyReplicas == 0 && sts.Status.Replicas > 0 {
+		return fmt.Errorf("no replicas are ready: %d/%d", sts.Status.ReadyReplicas, sts.Status.Replicas)
 	}
 
 	// 设置健康状态

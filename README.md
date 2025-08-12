@@ -21,11 +21,16 @@
 - 🚧 **TLS 安全**: 自动证书生成和管理
 - 🚧 **健康检查**: etcd 客户端健康监控
 
+### ⚠️ 已知问题
+- ❌ **动态扩缩容**: 存在时序问题，1→3节点扩容失败 (详见[分析报告](docs/design/ETCD_SCALING_ANALYSIS.md))
+  - 控制器先添加 etcd 成员，但对应的 Pod/Service 还没就绪
+  - 导致 DNS 解析失败，集群进入不健康状态
+  - 需要重新设计扩容架构
+
 ### 📋 计划功能
-- � **动态扩缩容**: 在线添加/移除 etcd 节点
-- � **数据备份恢复**: 支持定期备份和点时间恢复
-- � **故障恢复**: 智能故障检测和自动恢复
-- � **监控集成**: Prometheus 指标和 Grafana 仪表板
+- 📋 **数据备份恢复**: 支持定期备份和点时间恢复
+- 📋 **故障恢复**: 智能故障检测和自动恢复
+- 📋 **监控集成**: Prometheus 指标和 Grafana 仪表板
 
 ## 📋 系统要求
 
@@ -116,9 +121,15 @@ kubectl get pods -l app.kubernetes.io/name=etcd,app.kubernetes.io/instance=my-et
 
 ## 📚 文档
 
-- [📋 项目主控文档](PROJECT_MASTER.md) - 项目概述、进度追踪、里程碑管理
-- [🔧 技术规范文档](TECHNICAL_SPECIFICATION.md) - API 设计、控制器逻辑、技术约束
-- [🧪 开发指南](DEVELOPMENT_GUIDE.md) - 开发环境、代码规范、测试指南
+### 📋 项目管理文档
+- [📋 项目主控文档](docs/project-manage/PROJECT_MASTER.md) - 项目概述、进度追踪、里程碑管理
+- [🔧 技术规范文档](docs/project-manage/TECHNICAL_SPECIFICATION.md) - API 设计、控制器逻辑、技术约束
+- [🧪 开发指南](docs/project-manage/DEVELOPMENT_GUIDE.md) - 开发环境、代码规范、测试指南
+
+### 🔧 技术设计文档
+- [📋 执行摘要](docs/design/EXECUTIVE_SUMMARY.md) - 动态扩缩容修复项目执行摘要
+- [📊 详细修复报告](docs/design/DYNAMIC_SCALING_REPAIR_REPORT.md) - 扩缩容功能修复详细技术报告
+- [🧪 端到端测试发现](docs/design/E2E_TEST_FINDINGS.md) - 测试过程中的发现和问题分析
 
 
 ## 🛠️ 开发

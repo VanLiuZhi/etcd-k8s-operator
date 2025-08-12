@@ -71,7 +71,23 @@ func (sm *statefulSetManager) EnsureWithReplicas(ctx context.Context, cluster *e
 				return err
 			}
 		}
-		return sm.k8sClient.Create(ctx, desired)
+		createErr := sm.k8sClient.Create(ctx, desired)
+		if createErr != nil && errors.IsAlreadyExists(createErr) {
+			// 竞态条件：在Get和Create之间，资源被其他goroutine创建了
+			// 重新获取资源并继续更新检查逻辑
+			if getErr := sm.k8sClient.Get(ctx, types.NamespacedName{
+				Name:      desired.Name,
+				Namespace: desired.Namespace,
+			}, existing); getErr != nil {
+				return getErr
+			}
+			// 继续执行更新检查逻辑
+		} else if createErr != nil {
+			return createErr
+		} else {
+			// 创建成功，直接返回
+			return nil
+		}
 	} else if err != nil {
 		return err
 	}
@@ -152,10 +168,45 @@ func (sm *statefulSetManager) NeedsUpdate(existing, desired *appsv1.StatefulSet)
 		return true
 	}
 
-	// 检查镜像版本
+	// 检查 Pod 模板注解（用于触发滚动更新）
+	if len(existing.Spec.Template.Annotations) != len(desired.Spec.Template.Annotations) {
+		return true
+	}
+	for k, v := range desired.Spec.Template.Annotations {
+		if existing.Spec.Template.Annotations[k] != v {
+			return true
+		}
+	}
+
+	// 检查容器镜像版本
 	if len(existing.Spec.Template.Spec.Containers) > 0 && len(desired.Spec.Template.Spec.Containers) > 0 {
 		if existing.Spec.Template.Spec.Containers[0].Image != desired.Spec.Template.Spec.Containers[0].Image {
 			return true
+		}
+	}
+
+	// 检查 Init Containers（脚本/命令变更）
+	existingInits := existing.Spec.Template.Spec.InitContainers
+	desiredInits := desired.Spec.Template.Spec.InitContainers
+	if len(existingInits) != len(desiredInits) {
+		return true
+	}
+	for i := range desiredInits {
+		if desiredInits[i].Name != existingInits[i].Name ||
+			desiredInits[i].Image != existingInits[i].Image ||
+			len(desiredInits[i].Command) != len(existingInits[i].Command) ||
+			len(desiredInits[i].Args) != len(existingInits[i].Args) {
+			return true
+		}
+		for j := range desiredInits[i].Command {
+			if desiredInits[i].Command[j] != existingInits[i].Command[j] {
+				return true
+			}
+		}
+		for j := range desiredInits[i].Args {
+			if desiredInits[i].Args[j] != existingInits[i].Args[j] {
+				return true
+			}
 		}
 	}
 

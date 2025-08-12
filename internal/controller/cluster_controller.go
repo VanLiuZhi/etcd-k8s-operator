@@ -62,6 +62,7 @@ func NewClusterController(
 
 	// 创建服务层
 	clusterService := service.NewClusterService(k8sClient, resourceManager)
+	scalingService := service.NewScalingService(client, resourceManager)
 	// TODO: 创建其他服务
 
 	return &ClusterController{
@@ -70,7 +71,7 @@ func NewClusterController(
 		Recorder: recorder,
 
 		clusterService: clusterService,
-		// scalingService: scalingService,
+		scalingService: scalingService,
 		// healthService:  healthService,
 	}
 }
@@ -140,11 +141,16 @@ func (r *ClusterController) handleStateMachine(ctx context.Context, cluster *etc
 		return r.clusterService.CreateCluster(ctx, cluster)
 
 	case etcdv1alpha1.EtcdClusterPhaseRunning:
-		logger.Info("EtcdCluster is running, performing health check")
+		logger.Info("CLUSTER-CONTROLLER-DEBUG: EtcdCluster is running, performing health check", "DEBUG_VERSION", "cluster-controller-v1", "LINE", 144)
+		logger.Info("CLUSTER-CONTROLLER-DEBUG: About to check scalingService", "DEBUG_VERSION", "cluster-controller-v1", "LINE", 145, "scalingService", r.scalingService)
 		if r.scalingService != nil {
-			return r.scalingService.HandleRunning(ctx, cluster)
+			logger.Info("CLUSTER-CONTROLLER-DEBUG: Calling scalingService.HandleRunning", "DEBUG_VERSION", "cluster-controller-v1", "LINE", 146)
+			result, err := r.scalingService.HandleRunning(ctx, cluster)
+			logger.Info("CLUSTER-CONTROLLER-DEBUG: scalingService.HandleRunning returned", "DEBUG_VERSION", "cluster-controller-v1", "LINE", 147, "result", result, "error", err)
+			return result, err
 		}
 		// 临时处理，直到实现 scalingService
+		logger.Info("CLUSTER-CONTROLLER-DEBUG: scalingService is nil, returning requeue", "DEBUG_VERSION", "cluster-controller-v1", "LINE", 149)
 		return ctrl.Result{RequeueAfter: 30 * 1000000000}, nil // 30秒
 
 	case etcdv1alpha1.EtcdClusterPhaseScaling:

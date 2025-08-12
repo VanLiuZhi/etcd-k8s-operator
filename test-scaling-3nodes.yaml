@@ -1,0 +1,8 @@
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: scaling-test
+  namespace: default
+spec:
+  size: 3
+  version: "v3.5.21"

@@ -346,8 +346,11 @@ echo "Pod index: $POD_INDEX"
 # 创建配置目录
 mkdir -p /etc/etcd
 
-# 生成 etcd 配置文件
-cat > /etc/etcd/etcd.conf << EOF
+# 根据节点索引设置集群配置
+if [ "$POD_INDEX" = "0" ]; then
+    # 第一个节点：使用 new 模式启动单节点集群
+    echo "Configuring as first node (new cluster)"
+    cat > /etc/etcd/etcd.conf << EOF
 # etcd configuration for $HOSTNAME
 name: $HOSTNAME
 data-dir: /data
@@ -356,35 +359,52 @@ listen-peer-urls: http://0.0.0.0:2380
 advertise-client-urls: http://$HOSTNAME.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2379
 initial-advertise-peer-urls: http://$HOSTNAME.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380
 initial-cluster-token: ` + cluster.Name + `
-EOF
-
-# 根据节点索引设置集群配置
-if [ "$POD_INDEX" = "0" ]; then
-    # 第一个节点：使用 new 模式
-    echo "Configuring as first node (new cluster)"
-    cat >> /etc/etcd/etcd.conf << EOF
 initial-cluster-state: new
 initial-cluster: $HOSTNAME=http://$HOSTNAME.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380
 EOF
 else
-    # 后续节点：使用 existing 模式
+    # 后续节点：使用 existing 模式，但只包含第一个节点
+    # 控制器会在启动前添加这个节点到集群中
     echo "Configuring as additional node (joining existing cluster)"
 
-    # 构建包含所有节点的初始集群配置
-    INITIAL_CLUSTER=""
-    for i in $(seq 0 $POD_INDEX); do
-        if [ -n "$INITIAL_CLUSTER" ]; then
-            INITIAL_CLUSTER="$INITIAL_CLUSTER,"
-        fi
-        INITIAL_CLUSTER="${INITIAL_CLUSTER}` + cluster.Name + `-${i}=http://` + cluster.Name + `-${i}.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380"
+    # 等待第一个节点就绪
+    echo "Waiting for first node to be ready..."
+    while ! nslookup ` + cluster.Name + `-0.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local; do
+        echo "First node not ready, waiting..."
+        sleep 2
     done
 
-    cat >> /etc/etcd/etcd.conf << EOF
+    # 构建包含从0到POD_INDEX的所有成员的列表
+    # 控制器会确保在Pod就绪后才添加etcd成员，所以这个配置是安全的
+    echo "Building initial cluster configuration for $HOSTNAME (index: $POD_INDEX)"
+
+    members=""
+    for i in $(seq 0 $POD_INDEX); do
+        m="` + cluster.Name + `-$i=http://` + cluster.Name + `-$i.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380"
+        if [ -z "$members" ]; then
+            members="$m"
+        else
+            members="$members,$m"
+        fi
+    done
+
+    echo "Using member list: $members"
+
+
+    cat > /etc/etcd/etcd.conf << EOF
+# etcd configuration for $HOSTNAME
+name: $HOSTNAME
+data-dir: /data
+listen-client-urls: http://0.0.0.0:2379
+listen-peer-urls: http://0.0.0.0:2380
+advertise-client-urls: http://$HOSTNAME.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2379
+initial-advertise-peer-urls: http://$HOSTNAME.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380
+initial-cluster-token: ` + cluster.Name + `
 initial-cluster-state: existing
-initial-cluster: $INITIAL_CLUSTER
+initial-cluster: $members
 EOF
 
-    echo "Initial cluster: $INITIAL_CLUSTER"
+    echo "Configuration completed for additional node"
 fi
 
 echo "Generated etcd configuration:"
@@ -601,9 +621,16 @@ initial-cluster: %s
 
 // getInitialClusterState determines the initial cluster state based on node index
 func getInitialClusterState(cluster *etcdv1alpha1.EtcdCluster, podIndex int) string {
-	// 在 StatefulSet 模板中，我们始终使用 "new" 状态
-	// operator 会在添加成员后重启 Pod，并通过环境变量覆盖来设置正确的状态
-	return "new"
+	if cluster.Spec.Size == 1 {
+		// 单节点集群始终使用 "new"
+		return "new"
+	}
+
+	// 多节点集群：第一个节点使用 "new"，其他节点使用 "existing"
+	if podIndex == 0 {
+		return "new"
+	}
+	return "existing"
 }
 
 // buildInitialClusterForNode creates initial cluster configuration for a specific node
@@ -613,10 +640,22 @@ func buildInitialClusterForNode(cluster *etcdv1alpha1.EtcdCluster, podIndex int)
 		return buildInitialCluster(cluster)
 	}
 
-	// 对于多节点集群，在 StatefulSet 模板中我们始终使用第一个节点的配置
-	// 这样第一个节点可以成功启动，后续节点将通过 operator 动态管理
-	firstNodeName := fmt.Sprintf("%s-0", cluster.Name)
-	firstNodeURL := fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d",
-		firstNodeName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort)
-	return fmt.Sprintf("%s=%s", firstNodeName, firstNodeURL)
+	// 多节点集群：根据节点索引构建正确的初始集群配置
+	if podIndex == 0 {
+		// 第一个节点：只包含自己
+		firstNodeName := fmt.Sprintf("%s-0", cluster.Name)
+		firstNodeURL := fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d",
+			firstNodeName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort)
+		return fmt.Sprintf("%s=%s", firstNodeName, firstNodeURL)
+	} else {
+		// 后续节点：包含从0到当前节点的所有节点
+		var members []string
+		for i := 0; i <= podIndex; i++ {
+			memberName := fmt.Sprintf("%s-%d", cluster.Name, i)
+			memberURL := fmt.Sprintf("http://%s.%s-peer.%s.svc.cluster.local:%d",
+				memberName, cluster.Name, cluster.Namespace, utils.EtcdPeerPort)
+			members = append(members, fmt.Sprintf("%s=%s", memberName, memberURL))
+		}
+		return strings.Join(members, ",")
+	}
 }
