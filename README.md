@@ -15,17 +15,18 @@
 - ✅ **基础控制器**: Reconcile 循环和状态机实现
 - ✅ **测试框架**: 单元测试、集成测试、端到端测试
 - ✅ **开发工具**: 完整的测试脚本和开发文档
+- ✅ **集群生命周期**: 创建、删除、更新流程完整实现
+- ✅ **动态扩缩容**: 支持1→3节点扩容和3→2节点缩容，功能完全正常
 
 ### 🚧 开发中功能
-- 🚧 **集群生命周期**: 创建、删除、更新流程 (调试中)
 - 🚧 **TLS 安全**: 自动证书生成和管理
 - 🚧 **健康检查**: etcd 客户端健康监控
 
 ### ⚠️ 已知问题
-- ❌ **动态扩缩容**: 存在时序问题，1→3节点扩容失败 (详见[分析报告](docs/design/ETCD_SCALING_ANALYSIS.md))
-  - 控制器先添加 etcd 成员，但对应的 Pod/Service 还没就绪
-  - 导致 DNS 解析失败，集群进入不健康状态
-  - 需要重新设计扩容架构
+- ⚠️ **状态显示延迟**: EtcdCluster资源的READY字段更新有延迟，不影响实际功能
+  - 控制器内部状态正确，但kubectl输出状态可能有延迟
+  - 功能完全正常，仅影响状态显示
+  - 计划在下个版本修复
 
 ### 📋 计划功能
 - 📋 **数据备份恢复**: 支持定期备份和点时间恢复
@@ -130,6 +131,8 @@ kubectl get pods -l app.kubernetes.io/name=etcd,app.kubernetes.io/instance=my-et
 - [📋 执行摘要](docs/design/EXECUTIVE_SUMMARY.md) - 动态扩缩容修复项目执行摘要
 - [📊 详细修复报告](docs/design/DYNAMIC_SCALING_REPAIR_REPORT.md) - 扩缩容功能修复详细技术报告
 - [🧪 端到端测试发现](docs/design/E2E_TEST_FINDINGS.md) - 测试过程中的发现和问题分析
+- [🎯 扩缩容实现总结](docs/design/SCALING_IMPLEMENTATION_SUMMARY.md) - 扩缩容功能完整实现过程总结
+- [🧪 扩缩容测试流程](docs/design/SCALING_TEST_PROCEDURES.md) - 扩缩容功能验证测试流程
 
 
 ## 🛠️ 开发

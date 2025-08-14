@@ -1,0 +1,19 @@
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: test-concurrent-1
+  namespace: default
+spec:
+  size: 1
+  repository: quay.io/coreos/etcd
+  version: v3.5.21
+---
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: test-concurrent-2
+  namespace: default
+spec:
+  size: 1
+  repository: quay.io/coreos/etcd
+  version: v3.5.21

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
 	etcdclient "github.com/your-org/etcd-k8s-operator/pkg/etcd"
@@ -82,7 +83,13 @@ func (s *scalingService) HandleRunning(ctx context.Context, cluster *etcdv1alpha
 func (s *scalingService) HandleScaling(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// 获取最新的StatefulSet状态
+	// 1. 首先确保基础资源存在（修复：在扩缩容前确保Service等资源存在）
+	if err := s.resourceManager.EnsureAllResources(ctx, cluster); err != nil {
+		logger.Error(err, "Failed to ensure resources during scaling")
+		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+	}
+
+	// 2. 获取最新的StatefulSet状态
 	sts := &appsv1.StatefulSet{}
 	err := s.k8sClient.Get(ctx, types.NamespacedName{
 		Name:      cluster.Name,
@@ -96,6 +103,8 @@ func (s *scalingService) HandleScaling(ctx context.Context, cluster *etcdv1alpha
 	readyReplicas := sts.Status.ReadyReplicas
 	desiredSize := cluster.Spec.Size
 
+	logger.Info("SCALING-DEBUG: Raw cluster spec", "cluster.Spec.Size", cluster.Spec.Size, "cluster.Name", cluster.Name, "cluster.Namespace", cluster.Namespace)
+	logger.Info("SCALING-DEBUG: StatefulSet info", "sts.Spec.Replicas", *sts.Spec.Replicas, "sts.Status.ReadyReplicas", sts.Status.ReadyReplicas)
 	logger.Info("Scaling status check", "currentReplicas", currentReplicas, "readyReplicas", readyReplicas, "desiredSize", desiredSize)
 
 	// 更新集群状态中的ReadyReplicas
@@ -109,6 +118,12 @@ func (s *scalingService) HandleScaling(ctx context.Context, cluster *etcdv1alpha
 
 	// 检查是否需要继续扩缩容
 	if currentReplicas < desiredSize {
+		// 扩容前检查：如果有未就绪的Pod，等待它们就绪后再继续扩容
+		if readyReplicas < currentReplicas {
+			logger.Info("Waiting for existing pods to be ready before scaling up",
+				"currentReplicas", currentReplicas, "readyReplicas", readyReplicas, "desiredSize", desiredSize)
+			return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+		}
 		logger.Info("Scaling up cluster", "currentReplicas", currentReplicas, "to", desiredSize)
 		return s.handleScaleUp(ctx, cluster)
 	} else if currentReplicas > desiredSize {
@@ -116,8 +131,32 @@ func (s *scalingService) HandleScaling(ctx context.Context, cluster *etcdv1alpha
 		return s.handleScaleDown(ctx, cluster)
 	}
 
-	// StatefulSet副本数已达到期望值，检查是否所有Pod都就绪
+	// StatefulSet副本数已达到期望值，但Pod未就绪
+	// 这可能是因为新Pod没有被添加到etcd集群中
 	if readyReplicas < desiredSize {
+		logger.Info("StatefulSet has desired replicas but pods not ready, checking if etcd members need to be added",
+			"ready", readyReplicas, "desired", desiredSize, "currentReplicas", currentReplicas)
+
+		// 检查是否有Pod存在但未就绪，可能需要添加到etcd集群
+		for i := readyReplicas; i < currentReplicas; i++ {
+			memberName := fmt.Sprintf("%s-%d", cluster.Name, i)
+			serviceName := fmt.Sprintf("%s.%s-peer.%s.svc.cluster.local", memberName, cluster.Name, cluster.Namespace)
+
+			// 检查Pod是否存在
+			if s.isServiceResolvable(serviceName) {
+				logger.Info("Found unready pod that needs to be added to etcd cluster", "memberIndex", i, "serviceName", serviceName)
+
+				// 尝试添加到etcd集群
+				if err := s.addEtcdMember(ctx, cluster, int32(i)); err != nil {
+					logger.Error(err, "Failed to add etcd member for unready pod", "memberIndex", i)
+					return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+				}
+
+				logger.Info("Successfully added etcd member for unready pod", "memberIndex", i)
+				return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+			}
+		}
+
 		logger.Info("Waiting for all pods to be ready", "ready", readyReplicas, "desired", desiredSize)
 		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
 	}
@@ -202,20 +241,33 @@ func (s *scalingService) handleScaleUp(ctx context.Context, cluster *etcdv1alpha
 
 	logger.Info("Progressive scaling up", "current", currentSize, "target", targetSize, "desired", desiredSize)
 
-	// 步骤1: 先通过etcd API添加成员
 	nextMemberIndex := currentSize
+	nextMemberName := fmt.Sprintf("%s-%d", cluster.Name, nextMemberIndex)
+	serviceName := fmt.Sprintf("%s.%s-peer.%s.svc.cluster.local", nextMemberName, cluster.Name, cluster.Namespace)
+
+	// 步骤1: 先更新StatefulSet副本数，让Kubernetes创建新Pod和Service
+	*sts.Spec.Replicas = targetSize
+	if err := s.k8sClient.Update(ctx, sts); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("StatefulSet updated, waiting for service to be resolvable", "from", currentSize, "to", targetSize, "serviceName", serviceName)
+
+	// 步骤2: 等待新Service可以被DNS解析
+	if !s.isServiceResolvable(serviceName) {
+		logger.Info("Service not yet resolvable, waiting", "serviceName", serviceName)
+		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
+	}
+
+	logger.Info("Service is resolvable, adding etcd member", "serviceName", serviceName)
+
+	// 步骤3: Service就绪后，通过etcd API添加成员
 	if err := s.addEtcdMember(ctx, cluster, nextMemberIndex); err != nil {
 		logger.Error(err, "Failed to add etcd member", "memberIndex", nextMemberIndex)
 		return ctrl.Result{RequeueAfter: utils.DefaultRequeueInterval}, nil
 	}
 
 	logger.Info("Etcd member added successfully", "memberIndex", nextMemberIndex)
-
-	// 步骤2: 更新StatefulSet副本数，让Kubernetes创建新Pod
-	*sts.Spec.Replicas = targetSize
-	if err := s.k8sClient.Update(ctx, sts); err != nil {
-		return ctrl.Result{}, err
-	}
 
 	// 如果还没有达到期望大小，继续扩容
 	if targetSize < desiredSize {
@@ -374,7 +426,16 @@ func (s *scalingService) addEtcdMember(ctx context.Context, cluster *etcdv1alpha
 		}
 	}
 
-	logger.Info("Adding etcd member", "name", memberName, "peerURL", peerURL)
+	// 在添加成员之前，检查Service是否可以被DNS解析
+	serviceName := fmt.Sprintf("%s.%s-peer.%s.svc.cluster.local", memberName, cluster.Name, cluster.Namespace)
+	logger.Info("Checking if service is resolvable before adding etcd member", "serviceName", serviceName)
+
+	if !s.isServiceResolvable(serviceName) {
+		logger.Info("Service is not yet resolvable, waiting", "serviceName", serviceName)
+		return fmt.Errorf("service %s is not yet resolvable", serviceName)
+	}
+
+	logger.Info("Service is resolvable, proceeding to add etcd member", "name", memberName, "peerURL", peerURL)
 
 	// 添加成员到 etcd 集群
 	resp, err := etcdClient.AddMember(ctx, peerURL)
@@ -451,9 +512,36 @@ func (s *scalingService) isPodReady(pod *corev1.Pod) bool {
 
 // isServiceResolvable checks if a service name can be resolved via DNS
 func (s *scalingService) isServiceResolvable(serviceName string) bool {
-	// 简单的DNS解析检查
-	// 在实际环境中，我们可以使用net.LookupHost或者其他方法
-	// 这里我们先返回true，让etcd成员添加逻辑来处理连接问题
+	// 在Kubernetes集群内，控制器无法直接进行DNS解析
+	// 改为检查对应的Pod是否存在（不需要等待就绪，因为Pod需要先被添加到etcd集群才能就绪）
+
+	// 从serviceName中提取Pod名称
+	// serviceName格式: "test-single-node-1.test-single-node-peer.default.svc.cluster.local"
+	parts := strings.Split(serviceName, ".")
+	if len(parts) < 2 {
+		return false
+	}
+
+	podName := parts[0]
+	namespace := "default" // 假设在default namespace，实际应该从serviceName解析
+	if len(parts) >= 3 {
+		namespace = parts[2]
+	}
+
+	// 检查Pod是否存在（不检查就绪状态）
+	pod := &corev1.Pod{}
+	err := s.k8sClient.Get(context.Background(), types.NamespacedName{
+		Name:      podName,
+		Namespace: namespace,
+	}, pod)
+
+	if err != nil {
+		// Pod不存在
+		return false
+	}
+
+	// Pod存在就认为Service可解析
+	// 不需要等待Pod就绪，因为Pod需要先被添加到etcd集群才能就绪
 	return true
 }
 

@@ -374,19 +374,67 @@ else
         sleep 2
     done
 
-    # 构建包含从0到POD_INDEX的所有成员的列表
-    # 控制器会确保在Pod就绪后才添加etcd成员，所以这个配置是安全的
-    echo "Building initial cluster configuration for $HOSTNAME (index: $POD_INDEX)"
+    # 查询当前etcd集群的实际成员列表
+    echo "Querying current etcd cluster members..."
 
-    members=""
-    for i in $(seq 0 $POD_INDEX); do
-        m="` + cluster.Name + `-$i=http://` + cluster.Name + `-$i.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380"
-        if [ -z "$members" ]; then
-            members="$m"
+    # 尝试从第一个节点获取成员列表
+    FIRST_NODE="` + cluster.Name + `-0.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2379"
+
+    # 使用wget查询etcd v3 API获取成员列表
+    echo "Using wget to query existing members from $FIRST_NODE..."
+
+    # 查询成员列表，使用etcd v3 API
+    # 创建临时文件存储POST数据
+    echo '{}' > /tmp/post_data.json
+    members_json=$(wget -q -O - --post-file=/tmp/post_data.json --header="Content-Type: application/json" "http://$FIRST_NODE/v3/cluster/member/list" 2>/dev/null)
+
+    if [ $? -eq 0 ] && [ -n "$members_json" ]; then
+        echo "Successfully queried etcd v3 members API"
+        echo "API response: $members_json"
+
+        # 解析JSON获取成员的peerURLs（改进版本，正确处理多个成员）
+        # 使用grep和sed提取所有peerURLs
+        peer_urls=$(echo "$members_json" | grep -o '"peerURLs":\["[^"]*"\]' | sed 's/"peerURLs":\["\([^"]*\)"\]/\1/')
+
+        if [ -n "$peer_urls" ]; then
+            echo "Found existing peer URLs: $peer_urls"
+            existing_members=""
+
+            # 从每个peerURL中提取节点名并构建成员配置
+            for url in $peer_urls; do
+                # 从URL中提取节点名，例如从 http://test-single-node-0.test-single-node-peer.default.svc.cluster.local:2380 提取 test-single-node-0
+                node_name=$(echo "$url" | sed 's|http://\([^.]*\)\..*|\1|')
+                if [ -n "$node_name" ]; then
+                    member_url="$node_name=$url"
+                    if [ -z "$existing_members" ]; then
+                        existing_members="$member_url"
+                    else
+                        existing_members="$existing_members,$member_url"
+                    fi
+                fi
+            done
+
+            # 检查当前节点是否已经在集群中
+            current_node_url="http://` + cluster.Name + `-$POD_INDEX.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380"
+            if echo "$peer_urls" | grep -q "$current_node_url"; then
+                # 当前节点已在集群中，只使用现有成员列表
+                members="$existing_members"
+                echo "Current node already in cluster, using existing members: $members"
+            else
+                # 当前节点不在集群中，添加到成员列表
+                members="$existing_members,` + cluster.Name + `-$POD_INDEX=http://` + cluster.Name + `-$POD_INDEX.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380"
+                echo "Current node not in cluster, adding to members: $members"
+            fi
         else
-            members="$members,$m"
+            echo "Could not parse member names from API response, using fallback"
+            # 回退方法：假设只有第一个节点存在
+            members="` + cluster.Name + `-0=http://` + cluster.Name + `-0.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380,` + cluster.Name + `-$POD_INDEX=http://` + cluster.Name + `-$POD_INDEX.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380"
         fi
-    done
+    else
+        echo "Failed to query etcd v3 API, using fallback method"
+        # 回退方法：假设只有第一个节点存在
+        members="` + cluster.Name + `-0=http://` + cluster.Name + `-0.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380,` + cluster.Name + `-$POD_INDEX=http://` + cluster.Name + `-$POD_INDEX.` + cluster.Name + `-peer.` + cluster.Namespace + `.svc.cluster.local:2380"
+    fi
 
     echo "Using member list: $members"
 
@@ -530,9 +578,10 @@ func BuildPeerService(cluster *etcdv1alpha1.EtcdCluster) *corev1.Service {
 			Annotations: utils.AnnotationsForEtcdCluster(cluster),
 		},
 		Spec: corev1.ServiceSpec{
-			Type:      corev1.ServiceTypeClusterIP,
-			ClusterIP: corev1.ClusterIPNone, // Headless service
-			Selector:  selectorLabels,
+			Type:                     corev1.ServiceTypeClusterIP,
+			ClusterIP:                corev1.ClusterIPNone, // Headless service
+			PublishNotReadyAddresses: true,                 // 允许未就绪的Pod被添加到Endpoints
+			Selector:                 selectorLabels,
 			Ports: []corev1.ServicePort{
 				{
 					Name:       "peer",

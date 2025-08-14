@@ -1,0 +1,9 @@
+apiVersion: etcd.etcd.io/v1alpha1
+kind: EtcdCluster
+metadata:
+  name: test-5-node
+  namespace: default
+spec:
+  size: 5
+  repository: quay.io/coreos/etcd
+  version: v3.5.21
