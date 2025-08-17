@@ -105,16 +105,16 @@ test-coverage: manifests generate fmt vet envtest ## Run tests with coverage rep
 ##@ Kind Development
 
 .PHONY: kind-create
-kind-create: ## Create a Kind cluster for testing.
-	kind create cluster --name etcd-operator-test --config hack/kind-config.yaml
+kind-create: ## Create a Kind cluster for operator development.
+	kind create cluster --name etcd-operator-dev --config hack/kind-config.yaml
 
 .PHONY: kind-delete
-kind-delete: ## Delete the Kind cluster.
-	kind delete cluster --name etcd-operator-test
+kind-delete: ## Delete the Kind development cluster.
+	kind delete cluster --name etcd-operator-dev
 
 .PHONY: kind-load
 kind-load: docker-build ## Load the operator image into Kind cluster.
-	kind load docker-image ${IMG} --name etcd-operator-test
+	kind load docker-image ${IMG} --name etcd-operator-dev
 
 .PHONY: deploy-test
 deploy-test: kind-load install deploy ## Deploy operator to Kind cluster for testing.
@@ -200,6 +200,12 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
+
+.PHONY: deploy-files
+deploy-files: manifests kustomize ## Generate deployment files without applying to cluster.
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default > all-deploy.yaml
+	@echo "Deployment files generated: all-deploy.yaml"
 
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
