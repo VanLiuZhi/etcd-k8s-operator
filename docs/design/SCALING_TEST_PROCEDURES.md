@@ -76,18 +76,23 @@ kubectl get pods
 #### 1.2 构建和部署Operator
 
 ```bash
+# 部署CRD
+make install
+
 # 构建镜像
 make docker-build
 
-# 部署CRD
-make install
+# 加载镜像到Kind集群
+make kind-load
+# 验证镜像加载
+docker exec -it etcd-operator-dev-control-plane crictl images
 
 # 部署Operator
 make deploy
 
 # 验证Operator部署状态
 kubectl get pods -n etcd-operator-system
-kubectl logs -n etcd-operator-system deployment/etcd-operator-controller-manager -f
+kubectl logs -n etcd-operator-system deployment/etcd-k8s-operator-controller-manager -f
 ```
 
 **预期结果**：

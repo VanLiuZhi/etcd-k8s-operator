@@ -1,7 +1,9 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+# Use timestamp-based tag to ensure unique images for development
+#TIMESTAMP := $(shell date +%Y%m%d-%H%M)
+IMG ?= etcd-operator:dev-v1.0
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.30.0
+ENVTEST_K8S_VERSION = 1.28.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -104,6 +106,36 @@ test-coverage: manifests generate fmt vet envtest ## Run tests with coverage rep
 
 ##@ Kind Development
 
+.PHONY: dev-setup
+dev-setup: ## Complete development setup: create cluster and deploy operator.
+	@echo "🚀 Setting up complete development environment..."
+	$(MAKE) kind-create
+	@echo "⏳ Waiting for cluster to be ready..."
+	@sleep 10
+	kubectl wait --for=condition=Ready nodes --all --timeout=300s
+	$(MAKE) kind-deploy
+	@echo "🎉 Development environment ready!"
+	@echo ""
+	@echo "📋 Quick commands:"
+	@echo "   kubectl get pods -A"
+	@echo "   kubectl apply -f config/samples/"
+	@echo "   make kind-logs  # View operator logs"
+
+.PHONY: kind-logs
+kind-logs: ## Show operator logs from Kind cluster.
+	kubectl logs -n etcd-k8s-operator-system deployment/etcd-k8s-operator-controller-manager -f
+
+.PHONY: kind-status
+kind-status: ## Show Kind cluster and operator status.
+	@echo "📊 Kind Cluster Status:"
+	@kubectl get nodes
+	@echo ""
+	@echo "📦 Operator Pods:"
+	@kubectl get pods -n etcd-k8s-operator-system
+	@echo ""
+	@echo "🔧 Custom Resources:"
+	@kubectl get etcd,etcdbackup,etcdrestore -A || echo "No custom resources found"
+
 .PHONY: kind-create
 kind-create: ## Create a Kind cluster for operator development.
 	kind create cluster --name etcd-operator-dev --config hack/kind-config.yaml
@@ -112,12 +144,39 @@ kind-create: ## Create a Kind cluster for operator development.
 kind-delete: ## Delete the Kind development cluster.
 	kind delete cluster --name etcd-operator-dev
 
+.PHONY: kind-clean-images
+kind-clean-images: ## Clean up old development images.
+	@echo "🧹 Cleaning up old development images..."
+	docker images --format "table {{.Repository}}:{{.Tag}}\t{{.CreatedAt}}" | grep "etcd-operator:dev-" | head -n -3 | awk '{print $$1}' | xargs -r docker rmi || true
+	@echo "✅ Old images cleaned up"
+
+.PHONY: show-image
+show-image: ## Show current image name and tag.
+	@echo "Current image: ${IMG}"
+	@echo "Available etcd-operator images:"
+	@docker images etcd-operator --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}" || echo "No etcd-operator images found"
+
 .PHONY: kind-load
-kind-load: docker-build ## Load the operator image into Kind cluster.
+kind-load: ## Load the operator image into Kind cluster.
+	@echo "Loading image ${IMG} into Kind cluster..."
 	kind load docker-image ${IMG} --name etcd-operator-dev
+	@echo "Image loaded successfully"
+
+.PHONY: kind-deploy
+kind-deploy: ## Build, load and deploy operator to Kind cluster with fresh image.
+	@echo "🚀 Building and deploying operator to Kind cluster..."
+	@echo "Using image: ${IMG}"
+	$(MAKE) docker-build
+	$(MAKE) kind-load
+	$(MAKE) install
+	$(MAKE) deploy
+	@echo "✅ Operator deployed successfully to Kind cluster"
+	@echo "📋 Useful commands:"
+	@echo "   kubectl get pods -n etcd-k8s-operator-system"
+	@echo "   kubectl logs -n etcd-k8s-operator-system deployment/etcd-k8s-operator-controller-manager"
 
 .PHONY: deploy-test
-deploy-test: kind-load install deploy ## Deploy operator to Kind cluster for testing.
+deploy-test: kind-deploy ## Alias for kind-deploy (backward compatibility).
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

@@ -20,6 +20,7 @@
 - **[Bitnami etcd 支持](design/BITNAMI_ETCD_SUPPORT.md)** - Bitnami 镜像集成方案
 - **[Config 目录结构指南](design/CONFIG_DIRECTORY_GUIDE.md)** - config 目录文件生成机制和管理详解
 - **[Kind 开发环境配置](design/KIND_DEVELOPMENT_SETUP.md)** - 专为 Operator 开发优化的 Kind 集群配置
+- **[开发工作流指南](design/DEVELOPMENT_WORKFLOW.md)** - 镜像管理、部署流程和测试工作流
 
 ### 🔄 项目重构文档 (重构/)
 - **[重构管理文档](重构/REFACTORING_MASTER.md)** - 项目重构总体规划、进度跟踪和任务管理
@@ -57,7 +58,8 @@
 3. **[测试指南](design/TESTING_GUIDE.md)** - 测试策略和执行方法
 4. **[Config 目录结构指南](design/CONFIG_DIRECTORY_GUIDE.md)** - 配置文件生成和管理
 5. **[Kind 开发环境配置](design/KIND_DEVELOPMENT_SETUP.md)** - 开发集群设置和调试
-6. **[控制器实现状态报告](design/CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 当前实现状态
+6. **[开发工作流指南](design/DEVELOPMENT_WORKFLOW.md)** - 日常开发流程和最佳实践
+7. **[控制器实现状态报告](design/CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 当前实现状态
 
 ### 🧪 测试人员
 如果您负责测试，重点关注：
@@ -101,6 +103,7 @@
 | 测试指南 | ✅ 最新 | 2025-07-24 | 测试团队 |
 | Config 目录结构指南 | ✅ 最新 | 2025-08-15 | 开发团队 |
 | Kind 开发环境配置 | ✅ 最新 | 2025-08-15 | 开发团队 |
+| 开发工作流指南 | ✅ 最新 | 2025-08-15 | 开发团队 |
 
 ### ⚠️ 需要更新的文档
 | 文档 | 状态 | 问题 | 计划更新时间 |

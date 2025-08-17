@@ -1646,7 +1646,7 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
-        image: controller:latest
+        image: etcd-operator:dev-v1.0
         livenessProbe:
           httpGet:
             path: /healthz
