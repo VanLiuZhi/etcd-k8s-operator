@@ -16,8 +16,9 @@
 - **[开发规则文档](design/DEVELOPMENT_RULES.md)** - 开发规范、测试驱动开发、质量标准
 - **[测试指南](design/TESTING_GUIDE.md)** - 完整的测试策略和执行指南
 - **[测试过程详解](design/TEST_PROCESS_EXPLANATION.md)** - 详细的测试流程说明
+- **[扩缩容测试流程](design/SCALING_TEST_PROCEDURES.md)** - 扩缩容功能完整测试流程和验收标准
+- **[扩缩容代码执行流程分析](design/SCALING_CODE_EXECUTION_FLOW.md)** - 从CRD变更到Pod创建的完整代码执行流程分析 🔥
 - **[多节点实现方案](design/MULTINODE_IMPLEMENTATION.md)** - 多节点集群架构设计
-- **[Bitnami etcd 支持](design/BITNAMI_ETCD_SUPPORT.md)** - Bitnami 镜像集成方案
 - **[Config 目录结构指南](design/CONFIG_DIRECTORY_GUIDE.md)** - config 目录文件生成机制和管理详解
 - **[Kind 开发环境配置](design/KIND_DEVELOPMENT_SETUP.md)** - 专为 Operator 开发优化的 Kind 集群配置
 - **[开发工作流指南](design/DEVELOPMENT_WORKFLOW.md)** - 镜像管理、部署流程和测试工作流
@@ -97,10 +98,12 @@
 ### ✅ 最新文档
 | 文档 | 状态 | 最后更新 | 维护者 |
 |------|------|----------|--------|
-| README.md | ✅ 最新 | 2025-08-15 | 开发团队 |
+| README.md | ✅ 最新 | 2025-08-17 | 开发团队 |
 | 项目主控文档 | ✅ 最新 | 2025-07-24 | 项目经理 |
 | 开发规则文档 | ✅ 最新 | 2025-07-24 | 开发团队 |
 | 测试指南 | ✅ 最新 | 2025-07-24 | 测试团队 |
+| 扩缩容测试流程 | ✅ 最新 | 2025-08-17 | 测试团队 |
+| 扩缩容代码执行流程分析 | ✅ 最新 | 2025-08-17 | 开发团队 |
 | Config 目录结构指南 | ✅ 最新 | 2025-08-15 | 开发团队 |
 | Kind 开发环境配置 | ✅ 最新 | 2025-08-15 | 开发团队 |
 | 开发工作流指南 | ✅ 最新 | 2025-08-15 | 开发团队 |
@@ -144,8 +147,8 @@
 
 ---
 
-**文档中心版本**: v1.0  
-**最后更新**: 2025-07-24  
+**文档中心版本**: v1.1
+**最后更新**: 2025-08-17
 **维护者**: ETCD Operator 文档团队
 
 ⭐ 感谢您对项目文档的关注和贡献！

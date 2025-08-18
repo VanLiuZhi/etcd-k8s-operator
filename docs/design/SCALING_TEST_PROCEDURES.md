@@ -21,7 +21,7 @@
 - Kubernetes集群（本地或远程）
 - kubectl命令行工具
 - Docker（用于构建镜像）
-- Go 1.21+（用于编译）
+- Go 1.23.4（用于编译）
 
 **验证环境**：
 ```bash
@@ -91,8 +91,8 @@ docker exec -it etcd-operator-dev-control-plane crictl images
 make deploy
 
 # 验证Operator部署状态
-kubectl get pods -n etcd-operator-system
-kubectl logs -n etcd-operator-system deployment/etcd-k8s-operator-controller-manager -f
+kubectl get pods -n etcd-k8s-operator-system
+kubectl logs -n etcd-k8s-operator-system deployment/etcd-k8s-operator-controller-manager -f
 ```
 
 **预期结果**：
@@ -104,13 +104,16 @@ kubectl logs -n etcd-operator-system deployment/etcd-k8s-operator-controller-man
 #### 2.1 创建单节点集群
 
 ```bash
+# 创建ns
+kubectl create ns operator-etcd
+
 # 创建测试集群
 cat <<EOF | kubectl apply -f -
 apiVersion: etcd.etcd.io/v1alpha1
 kind: EtcdCluster
 metadata:
   name: test-scaling
-  namespace: default
+  namespace: operator-etcd
 spec:
   size: 1
   version: "v3.5.21"
@@ -127,7 +130,7 @@ kubectl get pods -w
 
 **终端2 - 监控EtcdCluster状态**：
 ```bash
-watch -n 2 'kubectl get etcdcluster test-scaling'
+watch -n 2 'kubectl get etcdcluster test-scaling -n operator-etcd'
 ```
 
 **终端3 - 监控Operator日志**：
@@ -140,16 +143,16 @@ kubectl logs -n etcd-operator-system deployment/etcd-operator-controller-manager
 **检查最终状态**：
 ```bash
 # 检查EtcdCluster状态
-kubectl get etcdcluster test-scaling
+kubectl get etcdcluster test-scaling -n operator-etcd
 
 # 检查Pod状态
-kubectl get pods
+kubectl get pods -n operator-etcd
 
 # 检查StatefulSet状态
-kubectl get statefulset test-scaling
+kubectl get statefulset test-scaling -n operator-etcd
 
 # 检查Service状态
-kubectl get service -l app.kubernetes.io/instance=test-scaling
+kubectl get service -l app.kubernetes.io/instance=test-scaling -n operator-etcd
 ```
 
 **预期结果**：
@@ -163,7 +166,7 @@ kubectl get service -l app.kubernetes.io/instance=test-scaling
 
 ```bash
 # 修改集群大小为3
-kubectl patch etcdcluster test-scaling --type='merge' -p='{"spec":{"size":3}}'
+kubectl patch etcdcluster test-scaling --type='merge' -p='{"spec":{"size":3}}' -n operator-etcd
 ```
 
 #### 3.2 监控扩容过程
@@ -184,6 +187,7 @@ kubectl get statefulset test-scaling
 
 # 检查etcd集群成员
 kubectl exec test-scaling-0 -c etcd -- etcdctl member list
+kubectl exec -n operator-etcd test-scaling-0 -c etcd -- etcdctl member list
 ```
 
 **预期结果**：
