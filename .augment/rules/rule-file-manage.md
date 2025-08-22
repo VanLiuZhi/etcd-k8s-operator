@@ -29,6 +29,8 @@ etcd-k8s-operator/
 - 个人笔记文件 (如 `notes.txt`)
 - 实验性脚本 (如 `experiment.sh`)
 - 备份文件 (如 `*.bak`, `*.tmp`)
+- 参考项目目录 (如 `Reference/`)
+- 测试覆盖率文件 (应放在test目录下)
 
 ### 📂 标准目录结构
 
@@ -51,16 +53,23 @@ etcd-k8s-operator/
 ├── internal/                    # 内部代码包
 │   └── controller/             # 控制器实现
 ├── pkg/                         # 可重用的代码包
+│   ├── client/                 # Kubernetes 客户端封装
 │   ├── etcd/                   # etcd 客户端封装
 │   ├── k8s/                    # Kubernetes 资源管理
+│   ├── resource/               # 资源定义和管理
+│   ├── service/                # 服务层逻辑
 │   └── utils/                  # 工具函数
 ├── test/                        # 测试代码和配置
 │   ├── e2e/                    # 端到端测试
 │   ├── integration/            # 集成测试
+│   ├── report/                 # 测试报告
+│   ├── scripts/                # 测试脚本
 │   └── testdata/               # 测试数据
 └── deploy/                      # 部署配置和脚本
-    ├── operator/               # Operator 部署配置
-    └── examples/               # 部署示例
+    ├── etcd-base/              # etcd 基础配置
+    ├── examples/               # 部署示例
+    ├── helm/                   # Helm Charts
+    └── manifests/              # Kubernetes 清单文件
 ```
 
 ## 📋 文件创建规则
@@ -164,4 +173,17 @@ etcd-k8s-operator/
 2. **重命名**: 修正不规范的文件名
 3. **清理重复**: 删除或合并重复文件
 4. **更新引用**: 修正所有相关引用
+
+## 🔄 特殊目录处理
+
+### 📚 学习和参考目录
+- `docs/my-self/` - 学习文档，不要修改，也不要把该文档记录到上下文中
+- `Reference/` - 参考项目目录，建议移除或移到docs/design/下作为参考资料
+
+### 📊 测试相关目录
+- `coverage/` - 测试覆盖率文件，应该移动到`test/report/`目录下
+- 测试报告和覆盖率文件统一放在`test/report/`目录
+
+### 🌐 中文目录名处理
+- 避免使用中文目录名，如`docs/重构/`应该重命名为`docs/refactor/`或移动内容到合适的英文目录
 
