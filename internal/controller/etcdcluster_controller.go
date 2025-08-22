@@ -18,29 +18,36 @@ package controller
 
 import (
 	"context"
-	"time"
+	"fmt"
+
+	"github.com/go-logr/logr"
+	etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+	"github.com/your-org/etcd-k8s-operator/pkg/cluster"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
 )
 
 const (
 	etcdFinalizer = "etcd.k8s.etcd.lz/finalizer"
 )
 
-// EtcdClusterReconciler reconciles a EtcdCluster object
+// EtcdClusterReconciler 协调 EtcdCluster 对象
 type EtcdClusterReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+	KubeCli  kubernetes.Interface
+
+	// clusters 存储正在管理的集群实例
+	clusters map[string]*cluster.Cluster
 }
 
 // +kubebuilder:rbac:groups=k8s.etcd.lz,resources=etcdclusters,verbs=get;list;watch;create;update;patch;delete
@@ -48,140 +55,109 @@ type EtcdClusterReconciler struct {
 // +kubebuilder:rbac:groups=k8s.etcd.lz,resources=etcdclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
+// Reconcile 是主要的 kubernetes 协调循环的一部分，旨在
+// 将集群的当前状态移动到更接近期望状态
 func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithValues("etcdcluster", req.NamespacedName)
 	logger.Info("Starting reconciliation")
 
-	// Get EtcdCluster instance
-	cluster := &etcdv1alpha1.EtcdCluster{}
-	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
-		if errors.IsNotFound(err) {
+	// 获取 EtcdCluster 实例
+	etcdCluster := &etcdv1alpha1.EtcdCluster{}
+	if err := r.Get(ctx, req.NamespacedName, etcdCluster); err != nil {
+		if apierrors.IsNotFound(err) {
 			logger.Info("EtcdCluster resource not found, ignoring since object must be deleted")
+			// 清理集群实例
+			if r.clusters != nil {
+				delete(r.clusters, req.NamespacedName.String())
+			}
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed to get EtcdCluster")
 		return ctrl.Result{}, err
 	}
 
-	// Handle deletion
-	if cluster.DeletionTimestamp != nil {
+	// 处理删除
+	if etcdCluster.DeletionTimestamp != nil {
 		logger.Info("EtcdCluster is being deleted")
-		return r.handleDeletion(ctx, cluster)
+		return r.handleDeletion(ctx, etcdCluster, logger)
 	}
 
-	// Add finalizer if not present
-	if !controllerutil.ContainsFinalizer(cluster, etcdFinalizer) {
+	// 添加 finalizer（如果不存在）
+	if !controllerutil.ContainsFinalizer(etcdCluster, etcdFinalizer) {
 		logger.Info("Adding finalizer to EtcdCluster")
-		controllerutil.AddFinalizer(cluster, etcdFinalizer)
-		if err := r.Update(ctx, cluster); err != nil {
+		controllerutil.AddFinalizer(etcdCluster, etcdFinalizer)
+		if err := r.Update(ctx, etcdCluster); err != nil {
 			logger.Error(err, "Failed to add finalizer")
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// Set defaults
-	cluster.SetDefaults()
+	// 设置默认值
+	etcdCluster.SetDefaults()
 
-	// Handle cluster based on current phase
-	switch cluster.Status.Phase {
-	case etcdv1alpha1.ClusterPhaseNone:
-		logger.Info("Initializing EtcdCluster")
-		return r.handleInitialization(ctx, cluster)
-	case etcdv1alpha1.ClusterPhaseCreating:
-		logger.Info("Creating EtcdCluster")
-		return r.handleCreating(ctx, cluster)
-	case etcdv1alpha1.ClusterPhaseRunning:
-		logger.Info("Managing running EtcdCluster")
-		return r.handleRunning(ctx, cluster)
-	case etcdv1alpha1.ClusterPhaseFailed:
-		logger.Info("EtcdCluster has failed, attempting recovery")
-		return r.handleFailed(ctx, cluster)
-	default:
-		logger.Info("Unknown phase, setting to Creating", "phase", cluster.Status.Phase)
-		cluster.Status.Phase = etcdv1alpha1.ClusterPhaseCreating
-		if err := r.Status().Update(ctx, cluster); err != nil {
-			logger.Error(err, "Failed to update status")
-			return ctrl.Result{}, err
+	// 验证集群规格
+	if err := r.validateClusterSpec(etcdCluster.Spec); err != nil {
+		logger.Error(err, "Invalid cluster spec")
+		return ctrl.Result{}, err
+	}
+
+	// 初始化集群映射
+	if r.clusters == nil {
+		r.clusters = make(map[string]*cluster.Cluster)
+	}
+
+	clusterKey := req.NamespacedName.String()
+
+	// 检查是否已存在集群实例
+	if existingCluster, exists := r.clusters[clusterKey]; exists {
+		// 更新现有集群
+		existingCluster.Update(etcdCluster)
+		logger.Info("Updated existing cluster")
+	} else {
+		// 创建新的集群实例
+		config := cluster.Config{
+			ServiceAccount: "default", // TODO: 从配置中获取
+			KubeCli:        r.KubeCli,
+			Client:         r.Client,
+			Recorder:       r.Recorder,
 		}
-		return ctrl.Result{Requeue: true}, nil
-	}
-}
 
-// handleInitialization handles the initialization of a new etcd cluster
-func (r *EtcdClusterReconciler) handleInitialization(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Initializing etcd cluster")
-
-	// Update status to Creating
-	cluster.Status.Phase = etcdv1alpha1.ClusterPhaseCreating
-	cluster.Status.Size = 0
-	if err := r.Status().Update(ctx, cluster); err != nil {
-		logger.Error(err, "Failed to update status to Creating")
-		return ctrl.Result{}, err
+		newCluster := cluster.New(config, etcdCluster, logger)
+		r.clusters[clusterKey] = newCluster
+		logger.Info("Created new cluster")
 	}
 
-	return ctrl.Result{Requeue: true}, nil
+	return ctrl.Result{}, nil
 }
 
-// handleCreating handles the creation of etcd cluster resources
-func (r *EtcdClusterReconciler) handleCreating(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Creating etcd cluster resources")
-
-	// TODO: Implement cluster creation logic
-	// For now, just mark as running
-	cluster.Status.Phase = etcdv1alpha1.ClusterPhaseRunning
-	cluster.Status.Size = cluster.Spec.Size
-	if err := r.Status().Update(ctx, cluster); err != nil {
-		logger.Error(err, "Failed to update status to Running")
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-}
-
-// handleRunning handles the management of a running etcd cluster
-func (r *EtcdClusterReconciler) handleRunning(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Managing running etcd cluster")
-
-	// TODO: Implement cluster management logic
-	// - Check cluster health
-	// - Handle scaling
-	// - Handle member failures
-
-	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-}
-
-// handleFailed handles recovery of a failed etcd cluster
-func (r *EtcdClusterReconciler) handleFailed(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Attempting to recover failed etcd cluster")
-
-	// TODO: Implement cluster recovery logic
-
-	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
-}
-
-// handleDeletion handles the deletion of etcd cluster resources
-func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
+// handleDeletion 处理 EtcdCluster 的删除
+func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, etcdCluster *etcdv1alpha1.EtcdCluster, logger logr.Logger) (ctrl.Result, error) {
 	logger.Info("Handling etcd cluster deletion")
 
-	// TODO: Implement cleanup logic
-	// - Delete etcd pods
-	// - Delete services
-	// - Delete configmaps
+	clusterKey := fmt.Sprintf("%s/%s", etcdCluster.Namespace, etcdCluster.Name)
 
-	// Remove finalizer
-	controllerutil.RemoveFinalizer(cluster, etcdFinalizer)
-	if err := r.Update(ctx, cluster); err != nil {
+	// 删除集群实例
+	if r.clusters != nil {
+		if clusterInstance, exists := r.clusters[clusterKey]; exists {
+			clusterInstance.Delete()
+			delete(r.clusters, clusterKey)
+			logger.Info("Cluster instance deleted")
+		}
+	}
+
+	// TODO: 实现清理逻辑
+	// - 删除 etcd pods
+	// - 删除 services
+	// - 删除 configmaps
+	// - 删除 PVCs
+
+	// 移除 finalizer
+	controllerutil.RemoveFinalizer(etcdCluster, etcdFinalizer)
+	if err := r.Update(ctx, etcdCluster); err != nil {
 		logger.Error(err, "Failed to remove finalizer")
 		return ctrl.Result{}, err
 	}
@@ -190,12 +166,26 @@ func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, cluster *etc
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
+// validateClusterSpec 验证集群规格
+func (r *EtcdClusterReconciler) validateClusterSpec(spec etcdv1alpha1.ClusterSpec) error {
+	if spec.Size <= 0 {
+		return fmt.Errorf("cluster size must be positive")
+	}
+	if spec.Size%2 == 0 {
+		return fmt.Errorf("cluster size must be odd")
+	}
+	if spec.Size > 7 {
+		return fmt.Errorf("cluster size must not exceed 7")
+	}
+	return nil
+}
+
+// SetupWithManager 设置控制器与管理器
 func (r *EtcdClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&etcdv1alpha1.EtcdCluster{}).
 		Owns(&corev1.Pod{}).
 		Owns(&corev1.Service{}).
-		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Complete(r)
 }

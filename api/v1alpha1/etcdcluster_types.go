@@ -120,6 +120,60 @@ type PodPolicy struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// TLSPolicy defines the TLS policy of an etcd cluster
+// TLSPolicy 定义了 etcd 集群的 TLS 策略
+type TLSPolicy struct {
+	// Static TLS configuration
+	// 静态 TLS 配置
+	// +optional
+	Static *StaticTLS `json:"static,omitempty"`
+}
+
+// StaticTLS defines static TLS configuration
+// StaticTLS 定义静态 TLS 配置
+type StaticTLS struct {
+	// Member contains secrets containing TLS certs used by each etcd member pod.
+	// Member 包含每个 etcd 成员 Pod 使用的 TLS 证书的 secrets
+	// +optional
+	Member *MemberSecret `json:"member,omitempty"`
+	// OperatorSecret contains the secret containing TLS certs used by operator to
+	// talk securely to this etcd cluster.
+	// OperatorSecret 包含 operator 用于与此 etcd 集群安全通信的 TLS 证书的 secret
+	// +optional
+	OperatorSecret string `json:"operatorSecret,omitempty"`
+}
+
+// MemberSecret defines the secret containing TLS certs used by etcd members
+// MemberSecret 定义包含 etcd 成员使用的 TLS 证书的 secret
+type MemberSecret struct {
+	// PeerSecret is the secret containing TLS certs used by each etcd member pod
+	// for peer connections.
+	// PeerSecret 是包含每个 etcd 成员 Pod 用于 peer 连接的 TLS 证书的 secret
+	// +optional
+	PeerSecret string `json:"peerSecret,omitempty"`
+	// ServerSecret is the secret containing TLS certs used by each etcd member pod
+	// for server connections.
+	// ServerSecret 是包含每个 etcd 成员 Pod 用于服务器连接的 TLS 证书的 secret
+	// +optional
+	ServerSecret string `json:"serverSecret,omitempty"`
+}
+
+// IsSecurePeer 检查是否启用 peer TLS
+func (tp *TLSPolicy) IsSecurePeer() bool {
+	if tp == nil || tp.Static == nil || tp.Static.Member == nil {
+		return false
+	}
+	return len(tp.Static.Member.PeerSecret) != 0
+}
+
+// IsSecureClient 检查是否启用 client TLS
+func (tp *TLSPolicy) IsSecureClient() bool {
+	if tp == nil || tp.Static == nil || tp.Static.Member == nil {
+		return false
+	}
+	return len(tp.Static.Member.ServerSecret) != 0
+}
+
 // ClusterSpec defines the desired state of EtcdCluster
 // ClusterSpec 定义了 EtcdCluster 的期望状态
 type ClusterSpec struct {
@@ -185,6 +239,11 @@ type ClusterSpec struct {
 	// 更新 Pod 不会对任何现有的 etcd Pod 生效
 	// +optional
 	Pod *PodPolicy `json:"pod,omitempty"`
+
+	// TLS defines the TLS policy for the etcd cluster
+	// TLS 定义了 etcd 集群的 TLS 策略
+	// +optional
+	TLS *TLSPolicy `json:"tls,omitempty"`
 }
 
 // ClusterCondition represents one current condition of an etcd cluster.
