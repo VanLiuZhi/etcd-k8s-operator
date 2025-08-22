@@ -1,132 +1,177 @@
 # ETCD Operator 重构设计文档
 
-## 概述
+## 📋 重构背景
 
-本文档记录了基于core/etcd-operator的完全重构过程，旨在创建一个简化、专注于核心功能的etcd Kubernetes Operator。
+基于对core/etcd-operator的深度分析，该项目采用早期Kubernetes Operator开发模式，存在以下问题：
+- 使用过时的技术栈（k8s 1.12.6, Go 1.10）
+- 复杂的三operator架构（etcd/backup/restore）
+- 原生client-go开发，维护成本高
+- 不支持现代Kubernetes版本
 
-## 重构目标
+## 🎯 重构目标
 
-1. **简化API设计**: 移除复杂的备份恢复功能，专注于集群管理
-2. **新API Group**: 从`etcd.etcd.io`改为`k8s.etcd.lz`
-3. **参考最佳实践**: 基于成熟的core/etcd-operator设计模式
-4. **清理代码**: 删除不必要的功能和代码
+### 技术现代化
+- **框架升级**: client-go原生开发 → kubebuilder v4.0.0
+- **版本升级**: k8s 1.12.6 → k8s 1.28+, Go 1.10 → Go 1.23.4+
+- **API现代化**: `etcd.database.coreos.com` → `k8s.etcd.lz`
 
-## API设计变更
+### 架构简化
+- **单operator架构**: 移除backup/restore operator，专注集群管理
+- **CRD简化**: 只保留EtcdCluster，移除EtcdBackup/EtcdRestore
+- **功能聚焦**: 专注核心的集群生命周期管理
 
-### 新的API Group
-- **旧**: `etcd.etcd.io/v1alpha1`
-- **新**: `k8s.etcd.lz/v1alpha1`
+## 🔍 原项目分析总结
 
-### CRD简化
-保留的CRD:
-- `EtcdCluster`: 核心集群管理资源
+### 核心架构（基于分析报告）
+```
+原架构：
+├── etcd-operator/          # 主集群管理
+├── backup-operator/        # 备份管理
+└── restore-operator/       # 恢复管理
 
-删除的CRD:
-- `EtcdBackup`: 备份功能（未来版本可能重新添加）
-- `EtcdRestore`: 恢复功能（未来版本可能重新添加）
+新架构：
+└── etcd-k8s-operator/     # 统一集群管理
+```
 
-### EtcdCluster API结构
+### 关键技术点
+1. **扩缩容机制**: 基于etcd member API的动态成员管理
+2. **故障恢复**: 通过健康检查和自动重启实现
+3. **状态管理**: 复杂的集群状态机和条件管理
+4. **TLS安全**: 自动证书生成和轮换
 
-参考core/etcd-operator的设计，简化为：
+## 🏗️ 新架构设计
 
+### API设计
 ```go
+// 新的API Group: k8s.etcd.lz/v1alpha1
+type EtcdCluster struct {
+    metav1.TypeMeta   `json:",inline"`
+    metav1.ObjectMeta `json:"metadata,omitempty"`
+    Spec              ClusterSpec   `json:"spec"`
+    Status            ClusterStatus `json:"status"`
+}
+
+// 简化的Spec设计
 type ClusterSpec struct {
-    Size       int         `json:"size"`
-    Repository string      `json:"repository,omitempty"`
-    Version    string      `json:"version,omitempty"`
-    Paused     bool        `json:"paused,omitempty"`
-    Pod        *PodPolicy  `json:"pod,omitempty"`
+    Size       int        `json:"size"`                    // 集群大小
+    Version    string     `json:"version,omitempty"`       // etcd版本
+    Repository string     `json:"repository,omitempty"`    // 镜像仓库
+    Pod        *PodPolicy `json:"pod,omitempty"`          // Pod策略
 }
 
+// 简化的Status设计
 type ClusterStatus struct {
-    Phase             ClusterPhase        `json:"phase"`
-    Reason            string              `json:"reason,omitempty"`
-    ControlPaused     bool                `json:"controlPaused,omitempty"`
-    Conditions        []ClusterCondition  `json:"conditions,omitempty"`
-    Size              int                 `json:"size"`
-    ServiceName       string              `json:"serviceName,omitempty"`
-    ClientPort        int                 `json:"clientPort,omitempty"`
-    Members           MembersStatus       `json:"members"`
-    CurrentVersion    string              `json:"currentVersion"`
-    TargetVersion     string              `json:"targetVersion"`
+    Phase          ClusterPhase      `json:"phase"`           // 集群阶段
+    Size           int               `json:"size"`            // 当前大小
+    Members        MembersStatus     `json:"members"`         // 成员状态
+    CurrentVersion string            `json:"currentVersion"`  // 当前版本
 }
 ```
 
-## 控制器架构
-
-### 参考core/etcd-operator设计
-- **状态机模式**: 使用明确的集群状态（None, Creating, Running, Failed）
-- **简化逻辑**: 移除复杂的多阶段创建逻辑
-- **错误处理**: 统一的错误处理和状态更新
-
-### 控制器方法结构
+### 控制器设计
 ```go
-func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error)
-func (r *EtcdClusterReconciler) handleInitialization(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error)
-func (r *EtcdClusterReconciler) handleCreating(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error)
-func (r *EtcdClusterReconciler) handleRunning(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error)
-func (r *EtcdClusterReconciler) handleFailed(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error)
-func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) (ctrl.Result, error)
+// 基于kubebuilder的控制器
+type EtcdClusterReconciler struct {
+    client.Client
+    Scheme   *runtime.Scheme
+    Recorder record.EventRecorder
+}
+
+// 简化的状态机
+const (
+    ClusterPhaseNone     = ""
+    ClusterPhaseCreating = "Creating"
+    ClusterPhaseRunning  = "Running"
+    ClusterPhaseFailed   = "Failed"
+)
 ```
 
-## 文件清理
+## 📊 实现计划
 
-### 删除的文件
-- `api/v1alpha1/etcdbackup_types.go`
-- `api/v1alpha1/etcdrestore_types.go`
-- `internal/controller/etcdbackup_controller.go`
-- `internal/controller/etcdrestore_controller.go`
-- 相关的RBAC和sample文件
+### 阶段1: 基础框架 (Week 1-2)
+- [x] 项目分析和设计文档
+- [ ] kubebuilder项目初始化
+- [ ] API定义和CRD生成
+- [ ] 基础控制器框架
 
-### 更新的文件
-- `api/v1alpha1/etcdcluster_types.go`: 完全重写，参考core/etcd-operator
-- `api/v1alpha1/groupversion_info.go`: 更新API group
-- `internal/controller/etcdcluster_controller.go`: 简化的控制器实现
-- 所有配置文件中的API group引用
+### 阶段2: 核心功能 (Week 3-6)
+- [ ] 集群创建逻辑
+- [ ] 生命周期管理
+- [ ] 状态监控和更新
+- [ ] 基础测试用例
 
-## 配置更新
+### 阶段3: 高级功能 (Week 7-10)
+- [ ] 扩缩容实现
+- [ ] 故障检测和恢复
+- [ ] 健康检查机制
+- [ ] 完整测试覆盖
 
-### CRD生成
-- 新的CRD文件: `config/crd/bases/k8s.etcd.lz_etcdclusters.yaml`
-- 删除旧的CRD文件
+### 阶段4: 生产就绪 (Week 11-12)
+- [ ] 性能优化
+- [ ] 安全加固
+- [ ] 文档完善
+- [ ] 发布准备
 
-### RBAC配置
-- 更新所有RBAC规则使用新的API group `k8s.etcd.lz`
-- 简化权限，只保留etcd集群管理相关权限
+## 🔧 关键技术决策
 
-### Sample配置
-- 更新sample文件使用新的API结构
-- 简化配置示例，专注于核心功能
+### 1. 框架选择
+**决策**: 使用kubebuilder v4.0.0
+**原因**:
+- 现代化的开发体验
+- 自动生成样板代码
+- 内置最佳实践
+- 活跃的社区支持
 
-## 实现状态
+### 2. API设计
+**决策**: 新API Group `k8s.etcd.lz`
+**原因**:
+- 避免与原项目冲突
+- 体现项目所有权
+- 支持独立演进
 
-### 已完成
-- [x] API重新设计和实现
-- [x] 控制器基础框架
-- [x] CRD生成和配置
-- [x] RBAC配置更新
-- [x] 文档更新
+### 3. 功能范围
+**决策**: 专注集群管理，移除备份恢复
+**原因**:
+- 降低复杂度
+- 聚焦核心价值
+- 便于维护和测试
 
-### 待实现
-- [ ] 集群创建逻辑实现
-- [ ] 扩缩容功能实现
-- [ ] 健康检查和故障恢复
-- [ ] 完整的测试用例
+### 4. 兼容性策略
+**决策**: 支持k8s 1.28+, etcd v3.5.21
+**原因**:
+- 面向未来的技术选择
+- 利用最新特性
+- 避免历史包袱
 
-## 技术债务
+## 📚 参考资料
 
-### 当前问题
-1. pkg目录下的代码需要更新以匹配新的API结构
-2. 测试用例需要重写
-3. 集群管理逻辑需要完整实现
+基于以下分析报告：
+- `etcd-operator技术栈分析报告.md` - 技术栈深度分析
+- `etcd-operator-CRD功能分析报告.md` - CRD功能详细分析
+- `etcd-operator扩缩容实现分析.md` - 扩缩容机制分析
+- `etcd-operator故障恢复处理流程详细分析.md` - 故障恢复分析
+- `etcd-operator-k8s-1.26-兼容性分析报告.md` - 兼容性分析
 
-### 解决计划
-1. 逐步更新pkg包中的代码
-2. 实现核心的集群管理功能
-3. 添加完整的测试覆盖
+## 🎯 成功标准
 
-## 参考资料
+### 功能标准
+- ✅ 支持etcd集群创建、删除、扩缩容
+- ✅ 自动故障检测和恢复
+- ✅ 完整的状态监控和报告
+- ✅ 兼容k8s 1.28+环境
 
-- [core/etcd-operator](https://github.com/coreos/etcd-operator): 参考的原始项目
-- [Kubernetes Operator Pattern](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/): Operator模式最佳实践
-- [Controller Runtime](https://github.com/kubernetes-sigs/controller-runtime): 控制器框架文档
+### 质量标准
+- ✅ 单元测试覆盖率 > 80%
+- ✅ 集成测试覆盖核心场景
+- ✅ 端到端测试验证完整流程
+- ✅ 性能测试满足生产要求
+
+### 文档标准
+- ✅ 完整的API文档
+- ✅ 详细的部署指南
+- ✅ 丰富的使用示例
+- ✅ 故障排查手册
+
+---
+
+**文档版本**: v1.0 | **最后更新**: 2025-08-21

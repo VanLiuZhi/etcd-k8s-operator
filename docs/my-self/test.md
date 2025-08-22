@@ -45,3 +45,7 @@ kind集群已经具备，任何情况下禁止修改，要操作k8s，直接执�
 
 # 规则要求
 任何情况下，遵守.augment/rules 下规则文件
+
+
+
+回到crd定义实现上，参考core/etcd-operator，先把etcd-operator也就是集群管理相关的crd定义实现，代码只保留crd定义相关的，删除其它全部代码，没有作用了。代码修改完成后，验证crd资源是否可以生成，并把crd安装到k8s中。创建todolist，开始
