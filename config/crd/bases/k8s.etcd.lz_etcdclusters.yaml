@@ -11,10 +11,28 @@ spec:
     kind: EtcdCluster
     listKind: EtcdClusterList
     plural: etcdclusters
+    shortNames:
+    - etcd
     singular: etcdcluster
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.size
+      name: Size
+      type: integer
+    - jsonPath: .status.size
+      name: Ready
+      type: integer
+    - jsonPath: .spec.version
+      name: Version
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: EtcdCluster is the Schema for the etcdclusters API
@@ -40,6 +58,7 @@ spec:
             description: ClusterSpec defines the desired state of EtcdCluster
             properties:
               paused:
+                default: false
                 description: Paused is to pause the control of the operator for the
                   etcd cluster.
                 type: boolean
@@ -1429,13 +1448,17 @@ spec:
                   By default, it is `quay.io/coreos/etcd`.
                 type: string
               size:
+                default: 3
                 description: |-
                   Size is the expected size of the etcd cluster.
                   The etcd-operator will eventually make the size of the running
                   cluster equal to the expected size.
                   The vaild range of the size is from 1 to 7.
+                maximum: 7
+                minimum: 1
                 type: integer
               version:
+                default: 3.5.21
                 description: |-
                   Version is the expected version of the etcd cluster.
                   The etcd-operator will eventually make the etcd cluster version
@@ -1447,6 +1470,7 @@ spec:
 
 
                   If version is not set, default is "3.5.21".
+                pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
                 type: string
             required:
             - size
@@ -1492,7 +1516,7 @@ spec:
                   type: object
                 type: array
               controlPaused:
-                description: ControlPuased indicates the operator pauses the control
+                description: ControlPaused indicates the operator pauses the control
                   of the cluster.
                 type: boolean
               currentVersion:
@@ -1518,6 +1542,7 @@ spec:
                 description: Phase is the cluster running phase
                 type: string
               reason:
+                description: Reason for the current phase
                 type: string
               serviceName:
                 description: ServiceName is the LB service for accessing etcd nodes.
@@ -1535,11 +1560,9 @@ spec:
             - members
             - phase
             - size
-            - targetVersion
             type: object
-        required:
-        - spec
-        - status
         type: object
     served: true
     storage: true
+    subresources:
+      status: {}
