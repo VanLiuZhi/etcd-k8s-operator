@@ -24,7 +24,7 @@ test/
 
 # 当前工作目标：
 1. 实现基于operator管理的etcd集群自动扩缩，故障恢复等功能。当前实现的代码问题非常多，准备完全重构
-2. Reference 目录下是 core/etcd-operator 项目，不要修改这个项目的任何代码，可以参考这个项目来修改代码
+2. _Reference 目录下是 core/etcd-operator 项目，不要修改这个项目的任何代码，可以参考这个项目来修改代码
 3. 当前项目的旧代码已经没有意义，包括文档等，都可以删除
 4. 由于是重构，我已经验证过，core/etcd-operator的代码无法跑在 Kubernetes 1.28+ ，重构时候要修改代码，主要是k8s api部分
 
@@ -51,4 +51,4 @@ kind集群已经具备，任何情况下禁止修改，要操作k8s，直接执�
 回到crd定义实现上，参考core/etcd-operator，先把etcd-operator也就是集群管理相关的crd定义实现，代码只保留crd定义相关的，删除其它全部代码，没有作用了。代码修改完成后，验证crd资源是否可以生成，并把crd安装到k8s中。创建todolist，开始
 
 
-@/Users/liuzhi/GoProject/etcd-k8s-operator/docs/refactor/参考之前的分析结果，实现扩缩容代码。我看到cmd和controller还有代码，删除重新实现。要求实现的代码加上中文注释，特别要注意按照当前技术栈做出调整和修改，Reference 目录下是 core/etcd-operator 项目，不要修改这个项目的任何代码，必须参考这个项目的核心逻辑来开发新代码，禁止自己实现新代码。代码实现后，能通过代码编译即可，等待我下一步指令。创建todolist，开始任务
+@/Users/liuzhi/GoProject/etcd-k8s-operator/docs/refactor/参考之前的分析结果，实现扩缩容代码。我看到cmd和controller还有代码，删除重新实现。要求实现的代码加上中文注释，特别要注意按照当前技术栈做出调整和修改，_Reference 目录下是 core/etcd-operator 项目，不要修改这个项目的任何代码，必须参考这个项目的核心逻辑来开发新代码，禁止自己实现新代码。代码实现后，能通过代码编译即可，等待我下一步指令。创建todolist，开始任务

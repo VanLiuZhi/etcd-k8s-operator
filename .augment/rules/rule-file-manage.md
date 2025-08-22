@@ -29,7 +29,7 @@ etcd-k8s-operator/
 - 个人笔记文件 (如 `notes.txt`)
 - 实验性脚本 (如 `experiment.sh`)
 - 备份文件 (如 `*.bak`, `*.tmp`)
-- 参考项目目录 (如 `Reference/`)
+- 参考项目目录 (如 `_Reference/`)
 - 测试覆盖率文件 (应放在test目录下)
 
 ### 📂 标准目录结构
@@ -178,7 +178,7 @@ etcd-k8s-operator/
 
 ### 📚 学习和参考目录
 - `docs/my-self/` - 学习文档，不要修改，也不要把该文档记录到上下文中
-- `Reference/` - 参考项目目录，不能删除，不能修改
+- `_Reference/` - 参考项目目录，不能删除，不能修改
 
 ### 📊 测试相关目录
 - `coverage/` - 测试覆盖率文件，应该移动到`test/report/`目录下

@@ -32,4 +32,4 @@ docs 目录下，project-manage 文件夹存储：项目主控文档，开发指
 
 # refactor
 
-重构文档，只能记录 Reference/etcd-operator 项目的分析说明文档
+重构文档，只能记录 _Reference/etcd-operator 项目的分析说明文档
