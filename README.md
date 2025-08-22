@@ -5,33 +5,27 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/your-org/etcd-k8s-operator/actions)
 
-一个企业级的 etcd Kubernetes Operator，用于在 Kubernetes 集群中管理 etcd 实例，提供高可用、动态扩缩容、自动故障恢复和数据维护等功能。
+一个基于core/etcd-operator重构的企业级 etcd Kubernetes Operator，专注于在 Kubernetes 集群中管理 etcd 实例，提供高可用、动态扩缩容和自动故障恢复等核心功能。
 
 ## 🚀 特性
 
-### ✅ 已实现功能
-- ✅ **CRD 定义**: 完整的 EtcdCluster、EtcdBackup、EtcdRestore API
-- ✅ **资源管理**: StatefulSet、Service、ConfigMap 自动生成
-- ✅ **基础控制器**: Reconcile 循环和状态机实现
-- ✅ **测试框架**: 单元测试、集成测试、端到端测试
-- ✅ **开发工具**: 完整的测试脚本和开发文档
-- ✅ **集群生命周期**: 创建、删除、更新流程完整实现
-- ✅ **动态扩缩容**: 支持1→3节点扩容和3→2节点缩容，功能完全正常
+### ✅ 重构完成功能
+- ✅ **新API设计**: 基于k8s.etcd.lz API group的简化CRD定义
+- ✅ **核心控制器**: 参考core/etcd-operator重新设计的控制器架构
+- ✅ **集群管理**: 支持etcd集群的创建、删除、扩缩容
+- ✅ **状态管理**: 完整的集群状态跟踪和条件管理
+- ✅ **资源清理**: 优雅的资源清理和finalizer管理
 
 ### 🚧 开发中功能
-- 🚧 **TLS 安全**: 自动证书生成和管理
-- 🚧 **健康检查**: etcd 客户端健康监控
-
-### ⚠️ 已知问题
-- ⚠️ **状态显示延迟**: EtcdCluster资源的READY字段更新有延迟，不影响实际功能
-  - 控制器内部状态正确，但kubectl输出状态可能有延迟
-  - 功能完全正常，仅影响状态显示
-  - 计划在下个版本修复
+- 🚧 **集群创建逻辑**: 实现完整的etcd集群创建流程
+- 🚧 **扩缩容实现**: 动态成员管理和集群重配置
+- 🚧 **健康检查**: etcd集群健康监控和故障检测
+- 🚧 **故障恢复**: 自动故障恢复和集群修复
 
 ### 📋 计划功能
-- 📋 **数据备份恢复**: 支持定期备份和点时间恢复
-- 📋 **故障恢复**: 智能故障检测和自动恢复
-- 📋 **监控集成**: Prometheus 指标和 Grafana 仪表板
+- 📋 **TLS安全**: 自动证书生成和管理
+- 📋 **监控集成**: Prometheus指标和告警
+- 📋 **备份恢复**: 数据备份和恢复功能（未来版本）
 
 ## 📋 系统要求
 

@@ -1,4 +1,4 @@
-apiVersion: etcd.etcd.io/v1alpha1
+apiVersion: k8s.etcd.lz/v1alpha1
 kind: EtcdCluster
 metadata:
   labels:
@@ -6,33 +6,31 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: etcdcluster-sample
 spec:
-  # 集群大小 (必须是奇数)
+  # Size is the expected size of the etcd cluster.
+  # The etcd-operator will eventually make the size of the running
+  # cluster equal to the expected size.
+  # The vaild range of the size is from 1 to 7.
   size: 3
 
-  # etcd 版本
-  version: "3.5.9"
+  # Version is the expected version of the etcd cluster.
+  # The version must follow the [semver]( http://semver.org) format, for example "3.5.21".
+  # Only etcd released versions are supported: https://github.com/coreos/etcd/releases
+  # If version is not set, default is "3.5.21".
+  version: "3.5.21"
 
-  # 容器镜像仓库
+  # Repository is the name of the repository that hosts
+  # etcd container images. It should be direct clone of the repository in official
+  # release: https://github.com/coreos/etcd/releases
+  # By default, it is `quay.io/coreos/etcd`.
   repository: "quay.io/coreos/etcd"
 
-  # 存储配置
-  storage:
-    size: "10Gi"
-    # storageClassName: "fast-ssd"  # 可选：指定存储类
-
-  # 安全配置
-  security:
-    tls:
-      enabled: true
-      clientTLSEnabled: true
-      peerTLSEnabled: true
-      autoTLS: true
-
-  # 资源配置
-  resources:
-    requests:
-      cpu: "100m"
-      memory: "128Mi"
-    limits:
-      cpu: "1000m"
-      memory: "1Gi"
+  # Pod defines the policy to create pod for the etcd pod.
+  # Updating Pod does not take effect on any existing etcd pods.
+  pod:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"

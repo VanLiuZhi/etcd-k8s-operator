@@ -8,7 +8,7 @@ metadata:
   name: etcdcluster-viewer-role
 rules:
 - apiGroups:
-  - etcd.etcd.io
+  - k8s.etcd.lz
   resources:
   - etcdclusters
   verbs:
@@ -16,7 +16,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - etcd.etcd.io
+  - k8s.etcd.lz
   resources:
   - etcdclusters/status
   verbs:

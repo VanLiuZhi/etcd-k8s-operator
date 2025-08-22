@@ -4,18 +4,18 @@
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.22+-green.svg)](https://kubernetes.io)
 [![Kubebuilder](https://img.shields.io/badge/Kubebuilder-4.0.0-orange.svg)](https://kubebuilder.io)
 
-> **项目状态**: 🚧 开发中 | **当前阶段**: 高级功能开发 | **完成度**: 85%
+> **项目状态**: 🔄 重构完成 | **当前阶段**: 核心功能实现 | **完成度**: 30%
 
 ## 📋 项目概述
 
-企业级的 etcd Kubernetes Operator，用于在 Kubernetes 集群中管理 etcd 实例，提供高可用、动态扩缩容、自动故障恢复和数据维护等功能。
+基于core/etcd-operator重构的企业级 etcd Kubernetes Operator，专注于在 Kubernetes 集群中管理 etcd 实例的核心功能，提供高可用、动态扩缩容和自动故障恢复等功能。
 
-### 🎯 核心目标
-- ✅ **高可用部署**: 支持 3/5/7 节点的奇数集群部署
-- ✅ **动态扩缩容**: 在线添加/移除 etcd 节点 (🎉 重大突破!)
-- 🚧 **自动故障恢复**: 智能故障检测和自动恢复
-- ⏳ **数据备份恢复**: 支持定期备份和点时间恢复
-- ⏳ **企业级安全**: TLS 加密和 RBAC 集成
+### 🎯 重构目标
+- ✅ **API重新设计**: 基于k8s.etcd.lz的简化API group
+- ✅ **架构简化**: 参考core/etcd-operator的成熟设计模式
+- ✅ **代码清理**: 移除复杂的备份恢复功能，专注核心集群管理
+- 🚧 **功能实现**: 逐步实现集群创建、扩缩容、故障恢复
+- ⏳ **测试完善**: 重新编写测试用例覆盖新架构
 
 ### 🛠️ 技术栈
 - **Kubernetes**: 1.22+ (兼容性要求)

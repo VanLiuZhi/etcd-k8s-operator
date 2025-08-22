@@ -18,195 +18,235 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EtcdClusterPhase represents the phase of an EtcdCluster
-type EtcdClusterPhase string
-
 const (
-	// EtcdClusterPhaseCreating indicates the cluster is being created
-	EtcdClusterPhaseCreating EtcdClusterPhase = "Creating"
-	// EtcdClusterPhaseRunning indicates the cluster is running normally
-	EtcdClusterPhaseRunning EtcdClusterPhase = "Running"
-	// EtcdClusterPhaseScaling indicates the cluster is scaling
-	EtcdClusterPhaseScaling EtcdClusterPhase = "Scaling"
-	// EtcdClusterPhaseUpgrading indicates the cluster is upgrading
-	EtcdClusterPhaseUpgrading EtcdClusterPhase = "Upgrading"
-	// EtcdClusterPhaseFailed indicates the cluster has failed
-	EtcdClusterPhaseFailed EtcdClusterPhase = "Failed"
-	// EtcdClusterPhaseDeleting indicates the cluster is being deleted
-	EtcdClusterPhaseDeleting EtcdClusterPhase = "Deleting"
-	// EtcdClusterPhaseStopped indicates the cluster is stopped (size=0)
-	EtcdClusterPhaseStopped EtcdClusterPhase = "Stopped"
+	defaultRepository  = "quay.io/coreos/etcd"
+	DefaultEtcdVersion = "3.5.21"
 )
 
-// EtcdStorageSpec defines the storage configuration for etcd
-type EtcdStorageSpec struct {
-	// StorageClassName is the name of the StorageClass to use for etcd data
-	// +kubebuilder:validation:Optional
-	StorageClassName *string `json:"storageClassName,omitempty"`
+// ClusterPhase represents the phase of an EtcdCluster
+type ClusterPhase string
 
-	// Size is the size of the storage volume
-	// +kubebuilder:default="10Gi"
-	Size resource.Quantity `json:"size,omitempty"`
+const (
+	ClusterPhaseNone     ClusterPhase = ""
+	ClusterPhaseCreating              = "Creating"
+	ClusterPhaseRunning               = "Running"
+	ClusterPhaseFailed                = "Failed"
+)
 
-	// VolumeClaimTemplate allows customizing the PVC template
-	// +kubebuilder:validation:Optional
-	VolumeClaimTemplate *corev1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
+// ClusterConditionType represents the type of cluster condition
+type ClusterConditionType string
+
+const (
+	ClusterConditionAvailable  ClusterConditionType = "Available"
+	ClusterConditionRecovering                      = "Recovering"
+	ClusterConditionScaling                         = "Scaling"
+	ClusterConditionUpgrading                       = "Upgrading"
+)
+
+// PodPolicy defines the policy to create pod for the etcd container.
+type PodPolicy struct {
+	// Labels specifies the labels to attach to pods the operator creates for the
+	// etcd cluster.
+	// "app" and "etcd_*" labels are reserved for the internal use of the etcd operator.
+	// Do not overwrite them.
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// NodeSelector specifies a map of key-value pairs. For the pod to be eligible
+	// to run on a node, the node must have each of the indicated key-value pairs as
+	// labels.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// The scheduling constraints on etcd pods.
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+
+	// Resources is the resource requirements for the etcd container.
+	// This field cannot be updated once the cluster is created.
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Tolerations specifies the pod's tolerations.
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+
+	// List of environment variables to set in the etcd container.
+	// This is used to configure etcd process. etcd cluster cannot be created, when
+	// bad environement variables are provided. Do not overwrite any flags used to
+	// bootstrap the cluster (for example `--initial-cluster` flag).
+	// This field cannot be updated.
+	EtcdEnv []corev1.EnvVar `json:"etcdEnv,omitempty"`
+
+	// PersistentVolumeClaimSpec is the spec to describe PVC for the etcd container
+	// This field is optional. If no PVC spec, etcd container will use emptyDir as volume
+	PersistentVolumeClaimSpec *corev1.PersistentVolumeClaimSpec `json:"persistentVolumeClaimSpec,omitempty"`
+
+	// Annotations specifies the annotations to attach to pods the operator creates for the
+	// etcd cluster.
+	// The "etcd.version" annotation is reserved for the internal use of the etcd operator.
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-// EtcdTLSSpec defines TLS configuration for etcd
-type EtcdTLSSpec struct {
-	// Enabled indicates whether TLS is enabled
-	// +kubebuilder:default=true
-	Enabled bool `json:"enabled,omitempty"`
+// ClusterSpec defines the desired state of EtcdCluster
+type ClusterSpec struct {
+	// Size is the expected size of the etcd cluster.
+	// The etcd-operator will eventually make the size of the running
+	// cluster equal to the expected size.
+	// The vaild range of the size is from 1 to 7.
+	Size int `json:"size"`
 
-	// ClientTLSEnabled indicates whether client TLS is enabled
-	// +kubebuilder:default=true
-	ClientTLSEnabled bool `json:"clientTLSEnabled,omitempty"`
-
-	// PeerTLSEnabled indicates whether peer TLS is enabled
-	// +kubebuilder:default=true
-	PeerTLSEnabled bool `json:"peerTLSEnabled,omitempty"`
-
-	// CertificateSecret is the name of the secret containing TLS certificates
-	// +kubebuilder:validation:Optional
-	CertificateSecret string `json:"certificateSecret,omitempty"`
-
-	// CASecret is the name of the secret containing the CA certificate
-	// +kubebuilder:validation:Optional
-	CASecret string `json:"caSecret,omitempty"`
-
-	// AutoTLS indicates whether to automatically generate TLS certificates
-	// +kubebuilder:default=true
-	AutoTLS bool `json:"autoTLS,omitempty"`
-}
-
-// EtcdSecuritySpec defines security configuration for etcd
-type EtcdSecuritySpec struct {
-	// TLS configuration
-	TLS EtcdTLSSpec `json:"tls,omitempty"`
-}
-
-// EtcdResourceSpec defines resource requirements for etcd
-type EtcdResourceSpec struct {
-	// Requests describes the minimum amount of compute resources required
-	// +kubebuilder:validation:Optional
-	Requests corev1.ResourceList `json:"requests,omitempty"`
-
-	// Limits describes the maximum amount of compute resources allowed
-	// +kubebuilder:validation:Optional
-	Limits corev1.ResourceList `json:"limits,omitempty"`
-}
-
-// EtcdClusterSpec defines the desired state of EtcdCluster
-type EtcdClusterSpec struct {
-	// Size is the number of etcd members in the cluster
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:validation:Maximum=9
-	// +kubebuilder:default=3
-	Size int32 `json:"size,omitempty"`
-
-	// Version is the etcd version to use (supports both "3.5.21" and "v3.5.21" formats)
-	// +kubebuilder:validation:Pattern=^v?3\.[0-9]+\.[0-9]+$
-	// +kubebuilder:default="v3.5.21"
-	Version string `json:"version,omitempty"`
-
-	// Repository is the container image repository
-	// +kubebuilder:default="quay.io/coreos/etcd"
+	// Repository is the name of the repository that hosts
+	// etcd container images. It should be direct clone of the repository in official
+	// release:
+	//   https://github.com/coreos/etcd/releases
+	// That means, it should have exact same tags and the same meaning for the tags.
+	//
+	// By default, it is `quay.io/coreos/etcd`.
 	Repository string `json:"repository,omitempty"`
 
-	// Storage configuration
-	Storage EtcdStorageSpec `json:"storage,omitempty"`
+	// Version is the expected version of the etcd cluster.
+	// The etcd-operator will eventually make the etcd cluster version
+	// equal to the expected version.
+	//
+	// The version must follow the [semver]( http://semver.org) format, for example "3.5.21".
+	// Only etcd released versions are supported: https://github.com/coreos/etcd/releases
+	//
+	// If version is not set, default is "3.5.21".
+	Version string `json:"version,omitempty"`
 
-	// Security configuration
-	Security EtcdSecuritySpec `json:"security,omitempty"`
+	// Paused is to pause the control of the operator for the etcd cluster.
+	Paused bool `json:"paused,omitempty"`
 
-	// Resources configuration
-	Resources EtcdResourceSpec `json:"resources,omitempty"`
+	// Pod defines the policy to create pod for the etcd pod.
+	//
+	// Updating Pod does not take effect on any existing etcd pods.
+	Pod *PodPolicy `json:"pod,omitempty"`
 }
 
-// EtcdMember represents an etcd cluster member
-type EtcdMember struct {
-	// Name is the name of the etcd member
-	Name string `json:"name,omitempty"`
-
-	// ID is the etcd member ID
-	ID string `json:"id,omitempty"`
-
-	// PeerURL is the peer URL of the etcd member
-	PeerURL string `json:"peerURL,omitempty"`
-
-	// ClientURL is the client URL of the etcd member
-	ClientURL string `json:"clientURL,omitempty"`
-
-	// Ready indicates if the member is ready
-	Ready bool `json:"ready,omitempty"`
-
-	// Role indicates the role of the member (leader/follower)
-	Role string `json:"role,omitempty"`
+// ClusterCondition represents one current condition of an etcd cluster.
+type ClusterCondition struct {
+	// Type of cluster condition.
+	Type ClusterConditionType `json:"type"`
+	// Status of the condition, one of True, False, Unknown.
+	Status corev1.ConditionStatus `json:"status"`
+	// The last time this condition was updated.
+	LastUpdateTime string `json:"lastUpdateTime,omitempty"`
+	// Last time the condition transitioned from one status to another.
+	LastTransitionTime string `json:"lastTransitionTime,omitempty"`
+	// The reason for the condition's last transition.
+	Reason string `json:"reason,omitempty"`
+	// A human readable message indicating details about the transition.
+	Message string `json:"message,omitempty"`
 }
 
-// EtcdClusterStatus defines the observed state of EtcdCluster
-type EtcdClusterStatus struct {
-	// Phase is the current phase of the etcd cluster
-	Phase EtcdClusterPhase `json:"phase,omitempty"`
-
-	// Conditions represent the latest available observations of the cluster's state
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// Members is the list of etcd cluster members
-	Members []EtcdMember `json:"members,omitempty"`
-
-	// ReadyReplicas is the number of ready etcd replicas
-	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
-
-	// LeaderID is the ID of the current etcd leader
-	LeaderID string `json:"leaderID,omitempty"`
-
-	// ClusterID is the etcd cluster ID
-	ClusterID string `json:"clusterID,omitempty"`
-
-	// ClientEndpoints are the client endpoints of the etcd cluster
-	ClientEndpoints []string `json:"clientEndpoints,omitempty"`
-
-	// LastBackupTime is the time of the last successful backup
-	LastBackupTime *metav1.Time `json:"lastBackupTime,omitempty"`
-
-	// LastUpdateTime is the last time the status was updated
-	LastUpdateTime *metav1.Time `json:"lastUpdateTime,omitempty"`
-
-	// ObservedGeneration is the most recent generation observed by the controller
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+// MembersStatus represents the status of etcd cluster members
+type MembersStatus struct {
+	// Ready are the etcd members that are ready to serve requests
+	// The member names are the same as the etcd pod names
+	Ready []string `json:"ready,omitempty"`
+	// Unready are the etcd members not ready to serve requests
+	Unready []string `json:"unready,omitempty"`
 }
 
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=etcd
-// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
-// +kubebuilder:printcolumn:name="Size",type="integer",JSONPath=".spec.size"
-// +kubebuilder:printcolumn:name="Ready",type="integer",JSONPath=".status.readyReplicas"
-// +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".spec.version"
-// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+// ClusterStatus defines the observed state of EtcdCluster
+type ClusterStatus struct {
+	// Phase is the cluster running phase
+	Phase  ClusterPhase `json:"phase"`
+	Reason string       `json:"reason,omitempty"`
+
+	// ControlPuased indicates the operator pauses the control of the cluster.
+	ControlPaused bool `json:"controlPaused,omitempty"`
+
+	// Condition keeps track of all cluster conditions, if they exist.
+	Conditions []ClusterCondition `json:"conditions,omitempty"`
+
+	// Size is the current size of the cluster
+	Size int `json:"size"`
+
+	// ServiceName is the LB service for accessing etcd nodes.
+	ServiceName string `json:"serviceName,omitempty"`
+
+	// ClientPort is the port for etcd client to access.
+	// It's the same on client LB service and etcd nodes.
+	ClientPort int `json:"clientPort,omitempty"`
+
+	// Members are the etcd members in the cluster
+	Members MembersStatus `json:"members"`
+	// CurrentVersion is the current cluster version
+	CurrentVersion string `json:"currentVersion"`
+	// TargetVersion is the version the cluster upgrading to.
+	// If the cluster is not upgrading, TargetVersion is empty.
+	TargetVersion string `json:"targetVersion"`
+}
+
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // EtcdCluster is the Schema for the etcdclusters API
 type EtcdCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec   EtcdClusterSpec   `json:"spec,omitempty"`
-	Status EtcdClusterStatus `json:"status,omitempty"`
+	Spec              ClusterSpec   `json:"spec"`
+	Status            ClusterStatus `json:"status"`
 }
 
-// +kubebuilder:object:root=true
+func (c *EtcdCluster) AsOwner() metav1.OwnerReference {
+	trueVar := true
+	return metav1.OwnerReference{
+		APIVersion: GroupVersion.String(),
+		Kind:       "EtcdCluster",
+		Name:       c.Name,
+		UID:        c.UID,
+		Controller: &trueVar,
+	}
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // EtcdClusterList contains a list of EtcdCluster
 type EtcdClusterList struct {
 	metav1.TypeMeta `json:",inline"`
+	// Standard list metadata
+	// More info: http://releases.k8s.io/HEAD/docs/devel/api-conventions.md#metadata
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []EtcdCluster `json:"items"`
+}
+
+// SetDefaults cleans up user passed spec, e.g. defaulting, transforming fields.
+func (e *EtcdCluster) SetDefaults() {
+	c := &e.Spec
+	if len(c.Repository) == 0 {
+		c.Repository = defaultRepository
+	}
+
+	if len(c.Version) == 0 {
+		c.Version = DefaultEtcdVersion
+	}
+
+	// Remove 'v' prefix if present
+	if c.Version[0] == 'v' {
+		c.Version = c.Version[1:]
+	}
+
+	// convert PodPolicy.AntiAffinity to Pod.Affinity.PodAntiAffinity if needed
+	if c.Pod != nil && c.Pod.Affinity == nil {
+		// Add default anti-affinity to spread etcd pods across nodes
+		c.Pod.Affinity = &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+					{
+						Weight: 100,
+						PodAffinityTerm: corev1.PodAffinityTerm{
+							LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+								"etcd_cluster": e.Name,
+							}},
+							TopologyKey: "kubernetes.io/hostname",
+						},
+					},
+				},
+			},
+		}
+	}
 }
 
 func init() {

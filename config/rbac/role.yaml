@@ -40,8 +40,12 @@ rules:
   resources:
   - pods
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - ""
@@ -82,32 +86,6 @@ rules:
 - apiGroups:
   - etcd.etcd.io
   resources:
-  - etcdbackups
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - etcd.etcd.io
-  resources:
-  - etcdbackups/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - etcd.etcd.io
-  resources:
-  - etcdbackups/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - etcd.etcd.io
-  resources:
   - etcdclusters
   verbs:
   - create
@@ -132,9 +110,9 @@ rules:
   - patch
   - update
 - apiGroups:
-  - etcd.etcd.io
+  - k8s.etcd.lz
   resources:
-  - etcdrestores
+  - etcdclusters
   verbs:
   - create
   - delete
@@ -144,15 +122,15 @@ rules:
   - update
   - watch
 - apiGroups:
-  - etcd.etcd.io
+  - k8s.etcd.lz
   resources:
-  - etcdrestores/finalizers
+  - etcdclusters/finalizers
   verbs:
   - update
 - apiGroups:
-  - etcd.etcd.io
+  - k8s.etcd.lz
   resources:
-  - etcdrestores/status
+  - etcdclusters/status
   verbs:
   - get
   - patch
