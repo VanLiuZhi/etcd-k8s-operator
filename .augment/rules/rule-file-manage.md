@@ -178,7 +178,7 @@ etcd-k8s-operator/
 
 ### 📚 学习和参考目录
 - `docs/my-self/` - 学习文档，不要修改，也不要把该文档记录到上下文中
-- `Reference/` - 参考项目目录，建议移除或移到docs/design/下作为参考资料
+- `Reference/` - 参考项目目录，不能删除，不能修改
 
 ### 📊 测试相关目录
 - `coverage/` - 测试覆盖率文件，应该移动到`test/report/`目录下

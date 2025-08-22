@@ -49,3 +49,6 @@ kind集群已经具备，任何情况下禁止修改，要操作k8s，直接执�
 
 
 回到crd定义实现上，参考core/etcd-operator，先把etcd-operator也就是集群管理相关的crd定义实现，代码只保留crd定义相关的，删除其它全部代码，没有作用了。代码修改完成后，验证crd资源是否可以生成，并把crd安装到k8s中。创建todolist，开始
+
+
+@/Users/liuzhi/GoProject/etcd-k8s-operator/docs/refactor/参考之前的分析结果，实现扩缩容代码。我看到cmd和controller还有代码，删除重新实现。要求实现的代码加上中文注释，特别要注意按照当前技术栈做出调整和修改，Reference 目录下是 core/etcd-operator 项目，不要修改这个项目的任何代码，必须参考这个项目的核心逻辑来开发新代码，禁止自己实现新代码。代码实现后，能通过代码编译即可，等待我下一步指令。创建todolist，开始任务
