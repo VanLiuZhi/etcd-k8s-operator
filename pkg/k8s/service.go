@@ -110,10 +110,7 @@ func IsKubernetesResourceAlreadyExistError(err error) bool {
 	return apierrors.IsAlreadyExists(err)
 }
 
-// IsKubernetesResourceNotFoundError 检查是否为资源未找到错误
-func IsKubernetesResourceNotFoundError(err error) bool {
-	return apierrors.IsNotFound(err)
-}
+
 
 // CascadeDeleteOptions 返回级联删除选项
 func CascadeDeleteOptions(gracePeriodSeconds int64) *metav1.DeleteOptions {
@@ -124,4 +121,26 @@ func CascadeDeleteOptions(gracePeriodSeconds int64) *metav1.DeleteOptions {
 			return &foreground
 		}(),
 	}
+}
+
+
+// DeletePods 删除Pods
+func DeletePods(ctx context.Context, kubecli kubernetes.Interface, namespace string, labels map[string]string, gracePeriodSeconds int64) error {
+	selector := metav1.ListOptions{
+		LabelSelector: metav1.FormatLabelSelector(
+			&metav1.LabelSelector{MatchLabels: labels},
+		),
+	}
+	return kubecli.CoreV1().Pods(namespace).DeleteCollection(ctx, *CascadeDeleteOptions(gracePeriodSeconds), selector)
+}
+
+// CreatePod 创建Pod
+func CreatePod(kubecli kubernetes.Interface, ns string, pod *corev1.Pod) error {
+	_, err := kubecli.CoreV1().Pods(ns).Create(context.TODO(), pod, metav1.CreateOptions{})
+	return err
+}
+
+// DeletePod 删除Pod
+func DeletePod(kubecli kubernetes.Interface, ns, podName string) error {
+	return kubecli.CoreV1().Pods(ns).Delete(context.TODO(), podName, metav1.DeleteOptions{})
 }

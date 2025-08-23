@@ -115,13 +115,7 @@ func UniqueMemberName(clusterName string) string {
 	return clusterName + "-" + suffix
 }
 
-// LabelsForCluster 返回集群的标签
-func LabelsForCluster(clusterName string) map[string]string {
-	return map[string]string{
-		"etcd_cluster": clusterName,
-		"app":          "etcd",
-	}
-}
+
 
 // etcdVolumeMounts 返回etcd卷挂载
 func etcdVolumeMounts() []corev1.VolumeMount {
@@ -209,24 +203,7 @@ func addOwnerRefToObject(o metav1.Object, r metav1.OwnerReference) {
 	o.SetOwnerReferences(append(o.GetOwnerReferences(), r))
 }
 
-// PVCNameFromMember 从成员名称获取PVC名称
-func PVCNameFromMember(memberName string) string {
-	return memberName
-}
 
-// NewEtcdPodPVC 创建etcd Pod的PVC
-func NewEtcdPodPVC(m *etcd.Member, pvcSpec corev1.PersistentVolumeClaimSpec, clusterName, namespace string, owner metav1.OwnerReference) *corev1.PersistentVolumeClaim {
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      PVCNameFromMember(m.Name),
-			Namespace: namespace,
-			Labels:    LabelsForCluster(clusterName),
-		},
-		Spec: pvcSpec,
-	}
-	addOwnerRefToObject(pvc, owner)
-	return pvc
-}
 
 // CreateAndWaitPod 创建Pod并等待其运行
 func CreateAndWaitPod(ctx context.Context, kubecli kubernetes.Interface, ns string, pod *corev1.Pod, timeout time.Duration) (*corev1.Pod, error) {

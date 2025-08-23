@@ -184,7 +184,7 @@ func (c *Cluster) removeMember(toRemove *etcd.Member) (err error) {
 	c.members.Remove(toRemove.Name)
 
 	// 记录事件
-	event := k8s.MemberRemoveEvent(toRemove.Name, c.cluster)
+	event := k8s.NewMemberRemoveEvent(toRemove.Name, c.cluster)
 	c.config.Recorder.Event(c.cluster, event.Type, event.Reason, event.Message)
 
 	// 删除Pod

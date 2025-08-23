@@ -45,6 +45,15 @@ func NewMemberRemoveEvent(memberName string, cluster *etcdv1alpha1.EtcdCluster) 
 	return event
 }
 
+// ReplacingDeadMemberEvent 创建替换死亡成员事件
+func ReplacingDeadMemberEvent(memberName string, cluster *etcdv1alpha1.EtcdCluster) *corev1.Event {
+	event := newClusterEvent(cluster)
+	event.Type = corev1.EventTypeNormal
+	event.Reason = "Replacing Dead Member"
+	event.Message = fmt.Sprintf("Replacing dead member %s", memberName)
+	return event
+}
+
 // NewClusterCreatedEvent 创建集群创建事件
 func NewClusterCreatedEvent(cluster *etcdv1alpha1.EtcdCluster) *corev1.Event {
 	event := newClusterEvent(cluster)
