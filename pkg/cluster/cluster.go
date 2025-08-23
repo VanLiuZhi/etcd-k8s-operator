@@ -245,6 +245,14 @@ func (c *Cluster) isSecureClient() bool {
 	return c.cluster.Spec.TLS != nil && c.cluster.Spec.TLS.IsSecureClient()
 }
 
+// isPodPVEnabled 检查是否启用Pod持久卷
+func (c *Cluster) isPodPVEnabled() bool {
+	if podPolicy := c.cluster.Spec.Pod; podPolicy != nil {
+		return podPolicy.PersistentVolumeClaimSpec != nil
+	}
+	return false
+}
+
 // logClusterCreation 记录集群创建日志
 func (c *Cluster) logClusterCreation() {
 	c.logger.Info("creating etcd cluster", "size", c.cluster.Spec.Size)
@@ -259,8 +267,19 @@ func (c *Cluster) recoverFromCreating() error {
 // recoverFromRunning 从运行状态恢复
 func (c *Cluster) recoverFromRunning() error {
 	c.logger.Info("recovering from running state")
-	// TODO: 实现从运行状态的恢复逻辑
-	return nil
+
+	running, _, err := c.pollPods()
+	if err != nil {
+		return err
+	}
+
+	if len(running) == 0 {
+		// If there are no running pods, maybe the cluster has been deleted.
+		// We will let the reconciliation loop handle this case.
+		return nil
+	}
+
+	return c.updateMembers(podsToMemberSet(running, c.isSecureClient()))
 }
 
 // updateCRStatus 更新CR状态

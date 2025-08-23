@@ -107,11 +107,10 @@ func (c *Cluster) addOneMember() error {
 	c.status.SetScalingUpCondition(c.members.Size(), c.cluster.Spec.Size)
 
 	// 创建etcd客户端连接
-	etcdcli, err := etcd.CreateClient(c.members.ClientURLs(), c.tlsConfig)
+	_, err := etcd.CreateClient(c.members.ClientURLs(), c.tlsConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create etcd client: %v", err)
 	}
-	defer etcdcli.Close()
 
 	// 生成新成员
 	newMember := c.newMember()
@@ -157,5 +156,120 @@ func needUpgrade(pods []*corev1.Pod, spec etcdv1alpha1.ClusterSpec) bool {
 // upgradeOneMember 升级一个成员
 // TODO: 实现升级逻辑
 func (c *Cluster) upgradeOneMember(pods []*corev1.Pod) error {
+	return nil
+}
+
+// removeDeadMember 移除死亡成员
+func (c *Cluster) removeDeadMember(toRemove *etcd.Member) error {
+	c.logger.Info("removing dead member", "member", toRemove.Name)
+	event := k8s.ReplacingDeadMemberEvent(toRemove.Name, c.cluster)
+	c.config.Recorder.Event(c.cluster, event.Type, event.Reason, event.Message)
+
+	return c.removeMember(toRemove)
+}
+
+// removeMember 移除成员
+func (c *Cluster) removeMember(toRemove *etcd.Member) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("remove member (%s) failed: %v", toRemove.Name, err)
+		}
+	}()
+
+	// 从etcd集群中移除成员
+	err = etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, toRemove.ID)
+	if err != nil {
+		return err
+	}
+	c.members.Remove(toRemove.Name)
+
+	// 记录事件
+	event := k8s.MemberRemoveEvent(toRemove.Name, c.cluster)
+	c.config.Recorder.Event(c.cluster, event.Type, event.Reason, event.Message)
+
+	// 删除Pod
+	if err := c.removePod(toRemove.Name); err != nil {
+		return err
+	}
+
+	if c.isPodPVEnabled() {
+		err = k8s.DeletePVC(c.config.KubeCli, c.cluster.Namespace, k8s.PVCNameFromMember(toRemove.Name))
+		if err != nil {
+			return err
+		}
+	}
+
+	c.logger.Info("removed member", "member", toRemove.Name, "id", toRemove.ID)
+	return nil
+}
+
+// createPod 创建Pod
+func (c *Cluster) createPod(members etcd.MemberSet, m *etcd.Member, state string) error {
+	pod := k8s.NewEtcdPod(m, members.PeerURLPairs(), c.cluster.Name, state, "", c.cluster, c.cluster.AsOwner())
+	if c.isPodPVEnabled() {
+		pvcSpec := c.cluster.Spec.Pod.PersistentVolumeClaimSpec
+		pvc := k8s.NewEtcdPodPVC(m, *pvcSpec, c.cluster.Name, c.cluster.Namespace, c.cluster.AsOwner())
+		err := k8s.CreatePVC(c.config.KubeCli, pvc)
+		if err != nil {
+			return err
+		}
+		k8s.AddEtcdVolumeToPod(pod, pvc)
+	} else {
+		k8s.AddEtcdVolumeToPod(pod, nil)
+	}
+	return k8s.CreatePod(c.config.KubeCli, c.cluster.Namespace, pod)
+}
+
+// removePod 删除Pod
+func (c *Cluster) removePod(name string) error {
+	return k8s.DeletePod(c.config.KubeCli, c.cluster.Namespace, name)
+}
+
+// podsToMemberSet 将pods转换为成员集合
+func podsToMemberSet(pods []*corev1.Pod, secureClient bool) etcd.MemberSet {
+	members := etcd.NewMemberSet()
+	for _, pod := range pods {
+		m := &etcd.Member{
+			Name:         pod.Name,
+			Namespace:    pod.Namespace,
+			SecureClient: secureClient,
+		}
+		members.Add(m)
+	}
+	return members
+}
+
+// updateMembers 更新成员
+func (c *Cluster) updateMembers(running etcd.MemberSet) error {
+	_, err := etcd.CreateClient(running.ClientURLs(), c.tlsConfig)
+	if err != nil {
+		return err
+	}
+
+	resp, err := etcd.ListMembers(running.ClientURLs(), c.tlsConfig)
+	if err != nil {
+		return err
+	}
+
+	members := etcd.NewMemberSet()
+	for _, m := range resp.Members {
+		id := m.ID
+		name := m.Name
+
+		if len(name) == 0 {
+			c.logger.Info("member has no name, skipping", "id", id)
+			continue
+		}
+
+		members.Add(&etcd.Member{
+			Name:         name,
+			Namespace:    c.cluster.Namespace,
+			ID:           id,
+			SecureClient: c.isSecureClient(),
+			SecurePeer:   c.isSecurePeer(),
+		})
+	}
+
+	c.members = members
 	return nil
 }
