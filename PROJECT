@@ -6,33 +6,33 @@ domain: etcd.io
 layout:
 - go.kubebuilder.io/v4
 projectName: etcd-k8s-operator
-repo: github.com/your-org/etcd-k8s-operator
+repo: github.com/etcd-lz/etcd-k8s-operator
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: etcd.io
-  group: etcd
+  group: k8s.etcd.lz
   kind: EtcdCluster
-  path: github.com/your-org/etcd-k8s-operator/api/v1alpha1
+  path: github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: etcd.io
-  group: etcd
+  group: k8s.etcd.lz
   kind: EtcdBackup
-  path: github.com/your-org/etcd-k8s-operator/api/v1alpha1
+  path: github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
   domain: etcd.io
-  group: etcd
+  group: k8s.etcd.lz
   kind: EtcdRestore
-  path: github.com/your-org/etcd-k8s-operator/api/v1alpha1
+  path: github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1
   version: v1alpha1
 version: "3"

@@ -1,4 +1,4 @@
-module github.com/your-org/etcd-k8s-operator
+module github.com/etcd-lz/etcd-k8s-operator
 
 go 1.23.4
 

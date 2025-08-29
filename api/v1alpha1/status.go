@@ -46,28 +46,28 @@ func (cs *ClusterStatus) SetReadyCondition() {
 
 // SetScalingUpCondition 设置扩容条件
 func (cs *ClusterStatus) SetScalingUpCondition(from, to int) {
-	c := newClusterCondition(ClusterConditionScaling, corev1.ConditionTrue, 
+	c := newClusterCondition(ClusterConditionScaling, corev1.ConditionTrue,
 		"Scaling up", scalingMsg(from, to))
 	cs.setClusterCondition(*c)
 }
 
 // SetScalingDownCondition 设置缩容条件
 func (cs *ClusterStatus) SetScalingDownCondition(from, to int) {
-	c := newClusterCondition(ClusterConditionScaling, corev1.ConditionTrue, 
+	c := newClusterCondition(ClusterConditionScaling, corev1.ConditionTrue,
 		"Scaling down", scalingMsg(from, to))
 	cs.setClusterCondition(*c)
 }
 
 // SetRecoveringCondition 设置恢复条件
 func (cs *ClusterStatus) SetRecoveringCondition() {
-	c := newClusterCondition(ClusterConditionRecovering, corev1.ConditionTrue, 
+	c := newClusterCondition(ClusterConditionRecovering, corev1.ConditionTrue,
 		"Disaster recovery", "")
 	cs.setClusterCondition(*c)
 }
 
 // SetUpgradingCondition 设置升级条件
 func (cs *ClusterStatus) SetUpgradingCondition(to string) {
-	c := newClusterCondition(ClusterConditionUpgrading, corev1.ConditionTrue, 
+	c := newClusterCondition(ClusterConditionUpgrading, corev1.ConditionTrue,
 		"Cluster upgrading", fmt.Sprintf("upgrading to %s", to))
 	cs.setClusterCondition(*c)
 }

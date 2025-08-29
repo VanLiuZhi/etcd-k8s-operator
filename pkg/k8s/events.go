@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
+	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

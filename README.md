@@ -3,7 +3,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.22.3-blue.svg)](https://golang.org)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.22+-green.svg)](https://kubernetes.io)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/your-org/etcd-k8s-operator/actions)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/etcd-lz/etcd-k8s-operator/actions)
 
 一个基于core/etcd-operator重构的企业级 etcd Kubernetes Operator，专注于在 Kubernetes 集群中管理 etcd 实例，提供高可用、动态扩缩容和自动故障恢复等核心功能。
 
@@ -59,11 +59,11 @@
 
 ```bash
 # 使用 Helm 安装
-helm repo add etcd-operator https://your-org.github.io/etcd-k8s-operator
+helm repo add etcd-operator https://etcd-lz.github.io/etcd-k8s-operator
 helm install etcd-operator etcd-operator/etcd-operator
 
 # 或者使用 kubectl 直接安装
-kubectl apply -f https://github.com/your-org/etcd-k8s-operator/releases/latest/download/install.yaml
+kubectl apply -f https://github.com/etcd-lz/etcd-k8s-operator/releases/latest/download/install.yaml
 ```
 
 ### 2. 创建 ETCD 集群
@@ -135,7 +135,7 @@ kubectl get pods -l app.kubernetes.io/name=etcd,app.kubernetes.io/instance=my-et
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-org/etcd-k8s-operator.git
+git clone https://github.com/etcd-lz/etcd-k8s-operator.git
 cd etcd-k8s-operator
 
 # 安装依赖
@@ -244,10 +244,10 @@ make test-cleanup
 
 ## 📞 联系我们
 
-- 📧 邮件: [etcd-operator@your-org.com](mailto:etcd-operator@your-org.com)
-- 💬 Slack: [#etcd-operator](https://your-org.slack.com/channels/etcd-operator)
-- 🐛 Issues: [GitHub Issues](https://github.com/your-org/etcd-k8s-operator/issues)
-- 📖 文档: [项目文档](https://your-org.github.io/etcd-k8s-operator)
+- 📧 邮件: [etcd-operator@etcd-lz.com](mailto:etcd-operator@etcd-lz.com)
+- 💬 Slack: [#etcd-operator](https://etcd-lz.slack.com/channels/etcd-operator)
+- 🐛 Issues: [GitHub Issues](https://github.com/etcd-lz/etcd-k8s-operator/issues)
+- 📖 文档: [项目文档](https://etcd-lz.github.io/etcd-k8s-operator)
 
 ---
 

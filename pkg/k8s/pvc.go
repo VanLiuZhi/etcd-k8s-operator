@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/your-org/etcd-k8s-operator/pkg/etcd"
+	"github.com/etcd-lz/etcd-k8s-operator/pkg/etcd"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"

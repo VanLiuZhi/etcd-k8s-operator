@@ -47,12 +47,12 @@ func ListMembers(clientURLs []string, tc *tls.Config) (*clientv3.MemberListRespo
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultRequestTimeout)
 	defer cancel()
-	
+
 	resp, err := etcdcli.MemberList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list members failed: %v", err)
 	}
-	
+
 	return resp, nil
 }
 
@@ -71,12 +71,12 @@ func RemoveMember(clientURLs []string, tc *tls.Config, id uint64) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultRequestTimeout)
 	defer cancel()
-	
+
 	_, err = etcdcli.Cluster.MemberRemove(ctx, id)
 	if err != nil {
 		return fmt.Errorf("remove member failed: %v", err)
 	}
-	
+
 	return nil
 }
 
@@ -95,12 +95,12 @@ func AddMember(clientURLs []string, tc *tls.Config, peerURLs []string) (*clientv
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultRequestTimeout)
 	defer cancel()
-	
+
 	resp, err := etcdcli.Cluster.MemberAdd(ctx, peerURLs)
 	if err != nil {
 		return nil, fmt.Errorf("add member failed: %v", err)
 	}
-	
+
 	return resp, nil
 }
 
@@ -111,12 +111,12 @@ func CreateClient(clientURLs []string, tc *tls.Config) (*clientv3.Client, error)
 		DialTimeout: DefaultDialTimeout,
 		TLS:         tc,
 	}
-	
+
 	etcdcli, err := clientv3.New(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create etcd client failed: %v", err)
 	}
-	
+
 	return etcdcli, nil
 }
 
@@ -135,12 +135,12 @@ func IsHealthy(clientURLs []string, tc *tls.Config) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultRequestTimeout)
 	defer cancel()
-	
+
 	// 尝试获取集群状态
 	_, err = etcdcli.Status(ctx, clientURLs[0])
 	if err != nil {
 		return fmt.Errorf("health check failed: %v", err)
 	}
-	
+
 	return nil
 }

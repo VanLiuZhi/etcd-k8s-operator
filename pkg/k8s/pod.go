@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
-	"github.com/your-org/etcd-k8s-operator/pkg/etcd"
+	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
+	"github.com/etcd-lz/etcd-k8s-operator/pkg/etcd"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -115,8 +115,6 @@ func UniqueMemberName(clusterName string) string {
 	return clusterName + "-" + suffix
 }
 
-
-
 // etcdVolumeMounts 返回etcd卷挂载
 func etcdVolumeMounts() []corev1.VolumeMount {
 	return []corev1.VolumeMount{
@@ -149,20 +147,24 @@ func etcdContainer(cmd []string, repo, version string) corev1.Container {
 
 // ImageName 构建镜像名称
 func ImageName(repo, version string) string {
+	// 确保版本号前有v前缀
+	if version != "" && !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
 	return fmt.Sprintf("%s:%s", repo, version)
 }
 
 // newEtcdProbe 创建etcd探针
 func newEtcdProbe(isSecure bool) *corev1.Probe {
 	// etcd pod只有在线性化get成功时才算存活
-	cmd := "ETCDCTL_API=3 etcdctl get foo"
+	cmd := []string{"etcdctl", "get", "foo"}
 	if isSecure {
-		cmd = fmt.Sprintf("ETCDCTL_API=3 etcdctl --endpoints=https://localhost:%d --insecure-skip-tls-verify get foo", EtcdClientPort)
+		cmd = []string{"etcdctl", "--endpoints=https://localhost:" + fmt.Sprintf("%d", EtcdClientPort), "--insecure-skip-tls-verify", "get", "foo"}
 	}
 	return &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			Exec: &corev1.ExecAction{
-				Command: []string{"/bin/sh", "-ec", cmd},
+				Command: cmd,
 			},
 		},
 		InitialDelaySeconds: 10,
@@ -202,8 +204,6 @@ func AddEtcdVolumeToPod(pod *corev1.Pod, pvc *corev1.PersistentVolumeClaim) {
 func addOwnerRefToObject(o metav1.Object, r metav1.OwnerReference) {
 	o.SetOwnerReferences(append(o.GetOwnerReferences(), r))
 }
-
-
 
 // CreateAndWaitPod 创建Pod并等待其运行
 func CreateAndWaitPod(ctx context.Context, kubecli kubernetes.Interface, ns string, pod *corev1.Pod, timeout time.Duration) (*corev1.Pod, error) {

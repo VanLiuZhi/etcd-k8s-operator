@@ -35,8 +35,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
-	"github.com/your-org/etcd-k8s-operator/internal/controller"
+	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
+	"github.com/etcd-lz/etcd-k8s-operator/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
 

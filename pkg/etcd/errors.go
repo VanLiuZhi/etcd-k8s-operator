@@ -21,16 +21,16 @@ import "errors"
 var (
 	// ErrLostQuorum 表示etcd集群失去法定人数
 	ErrLostQuorum = errors.New("etcd cluster lost quorum")
-	
+
 	// ErrMemberNotFound 表示找不到指定的成员
 	ErrMemberNotFound = errors.New("etcd member not found")
-	
+
 	// ErrClusterNotHealthy 表示etcd集群不健康
 	ErrClusterNotHealthy = errors.New("etcd cluster is not healthy")
-	
+
 	// ErrInvalidMemberName 表示成员名称无效
 	ErrInvalidMemberName = errors.New("invalid etcd member name")
-	
+
 	// ErrInvalidClusterSize 表示集群大小无效
 	ErrInvalidClusterSize = errors.New("invalid etcd cluster size")
 )

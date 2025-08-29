@@ -35,7 +35,7 @@ type Member struct {
 
 	SecurePeer   bool // 是否启用peer TLS
 	SecureClient bool // 是否启用client TLS
-	
+
 	// ClusterDomain 集群域名，用于构建FQDN
 	ClusterDomain string
 }

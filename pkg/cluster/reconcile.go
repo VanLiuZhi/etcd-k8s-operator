@@ -19,9 +19,9 @@ package cluster
 import (
 	"fmt"
 
-	etcdv1alpha1 "github.com/your-org/etcd-k8s-operator/api/v1alpha1"
-	"github.com/your-org/etcd-k8s-operator/pkg/etcd"
-	"github.com/your-org/etcd-k8s-operator/pkg/k8s"
+	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
+	"github.com/etcd-lz/etcd-k8s-operator/pkg/etcd"
+	"github.com/etcd-lz/etcd-k8s-operator/pkg/k8s"
 
 	corev1 "k8s.io/api/core/v1"
 )

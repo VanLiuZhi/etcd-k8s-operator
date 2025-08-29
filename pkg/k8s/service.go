@@ -68,7 +68,7 @@ func CreatePeerService(ctx context.Context, kubecli kubernetes.Interface, cluste
 func createService(ctx context.Context, kubecli kubernetes.Interface, svcName, clusterName, ns, clusterIP string, ports []corev1.ServicePort, owner metav1.OwnerReference) error {
 	svc := newEtcdServiceManifest(svcName, clusterName, clusterIP, ports)
 	addOwnerRefToObject(svc, owner)
-	
+
 	_, err := kubecli.CoreV1().Services(ns).Create(ctx, svc, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
@@ -110,8 +110,6 @@ func IsKubernetesResourceAlreadyExistError(err error) bool {
 	return apierrors.IsAlreadyExists(err)
 }
 
-
-
 // CascadeDeleteOptions 返回级联删除选项
 func CascadeDeleteOptions(gracePeriodSeconds int64) *metav1.DeleteOptions {
 	return &metav1.DeleteOptions{
@@ -122,7 +120,6 @@ func CascadeDeleteOptions(gracePeriodSeconds int64) *metav1.DeleteOptions {
 		}(),
 	}
 }
-
 
 // DeletePods 删除Pods
 func DeletePods(ctx context.Context, kubecli kubernetes.Interface, namespace string, labels map[string]string, gracePeriodSeconds int64) error {

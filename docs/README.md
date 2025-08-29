@@ -145,9 +145,9 @@
 
 如果您对文档有任何问题或建议，请通过以下方式联系我们：
 
-- 📧 **邮件**: etcd-operator@your-org.com
-- 🐛 **Issues**: [GitHub Issues](https://github.com/your-org/etcd-k8s-operator/issues)
-- 💬 **讨论**: [GitHub Discussions](https://github.com/your-org/etcd-k8s-operator/discussions)
+- 📧 **邮件**: etcd-operator@etcd-lz.com
+- 🐛 **Issues**: [GitHub Issues](https://github.com/etcd-lz/etcd-k8s-operator/issues)
+- 💬 **讨论**: [GitHub Discussions](https://github.com/etcd-lz/etcd-k8s-operator/discussions)
 
 ---
 

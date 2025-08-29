@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: etcd-operator
-  newTag: dev-v1.0
+  newTag: dev
