@@ -573,3 +573,234 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
     return ctrl.Result{}, nil
 }
 ```
+
+### 2.9 Cluster.New 执行流程
+
+#### 问题：cluster.New() 函数执行流程是什么样的？
+**解答**：cluster.New() 函数是集群管理模块的核心入口，它初始化一个 Cluster 结构体并启动后台协程来管理集群。执行流程包括初始化、启动后台协程、调用 setup() 方法和 run() 方法。
+
+**执行流程**：
+```go
+// 1. 初始化 Cluster 结构体
+func New(config Config, cl *etcdv1alpha1.EtcdCluster, logger logr.Logger) *Cluster {
+    c := &Cluster{
+        logger:  logger.WithValues("cluster-name", cl.Name),
+        config:  config,
+        cluster: cl,
+        eventCh: make(chan *clusterEvent, 100),  // 事件通道
+        stopCh:  make(chan struct{}),            // 停止通道
+        status:  *cl.Status.DeepCopy(),          // 复制状态
+    }
+
+    // 2. 启动集群管理协程
+    go func() {
+        // 3. 调用 setup() 方法进行集群初始化
+        if err := c.setup(); err != nil {
+            // 错误处理，设置集群为失败状态
+            c.logger.Error(err, "cluster failed to setup")
+            if c.status.Phase != etcdv1alpha1.ClusterPhaseFailed {
+                c.status.SetReason(err.Error())
+                c.status.SetPhase(etcdv1alpha1.ClusterPhaseFailed)
+                c.updateCRStatus()
+            }
+            return
+        }
+        // 4. 调用 run() 方法启动主运行循环
+        c.run()
+    }()
+
+    return c
+}
+
+// 3. setup() 方法根据集群状态执行不同逻辑
+func (c *Cluster) setup() error {
+    var shouldCreateCluster bool
+    switch c.status.Phase {
+    case etcdv1alpha1.ClusterPhaseNone:
+        // 新集群，需要创建
+        shouldCreateCluster = true
+    case etcdv1alpha1.ClusterPhaseCreating:
+        // 从创建状态恢复
+        return c.recoverFromCreating()
+    case etcdv1alpha1.ClusterPhaseRunning:
+        // 从运行状态恢复
+        return c.recoverFromRunning()
+    default:
+        return fmt.Errorf("unexpected cluster phase: %s", c.status.Phase)
+    }
+
+    if shouldCreateCluster {
+        return c.create()  // 创建新集群
+    }
+    return nil
+}
+
+// 4. run() 方法启动主运行循环
+func (c *Cluster) run() {
+    // 1. 设置集群状态为运行中
+    c.status.SetPhase(etcdv1alpha1.ClusterPhaseRunning)
+    c.updateCRStatus()
+
+    c.logger.Info("start running cluster")
+
+    var rerr error
+    for {
+        select {
+        case <-c.stopCh:
+            // 收到停止信号，退出循环
+            return
+        case event := <-c.eventCh:
+            // 处理事件（如集群更新）
+            switch event.typ {
+            case eventModifyCluster:
+                if !isSpecEqual(event.cluster.Spec, c.cluster.Spec) {
+                    c.cluster = event.cluster  // 更新集群规格
+                    c.logger.Info("cluster spec updated")
+                }
+            }
+        case <-time.After(reconcileInterval):
+            // 定期协调循环（每5秒）
+            start := time.Now()
+
+            // 1. 轮询Pod状态
+            running, pending, err := c.pollPods()
+            if err != nil {
+                c.logger.Error(err, "failed to poll pods")
+                continue
+            }
+
+            // 2. 处理pending状态的Pod
+            if len(pending) > 0 {
+                c.logger.Info("skip reconciliation: pods are pending")
+                continue
+            }
+
+            // 3. 如果没有运行中的Pod，记录日志
+            if len(running) == 0 {
+                c.logger.Info("all etcd pods are dead")
+                break
+            }
+
+            // 4. 更新成员信息
+            if rerr != nil || c.members == nil {
+                rerr = c.updateMembers(podsToMemberSet(running, c.isSecureClient()))
+                if rerr != nil {
+                    c.logger.Error(rerr, "failed to update members")
+                    break
+                }
+            }
+
+            // 5. 执行协调逻辑
+            rerr = c.reconcile(running)
+            if rerr != nil {
+                c.logger.Error(rerr, "failed to reconcile")
+                break
+            }
+
+            // 6. 更新成员状态和CR状态
+            c.updateMemberStatus(running)
+            c.updateCRStatus()
+
+            c.logger.V(1).Info("reconcile completed", "duration", time.Since(start))
+        }
+
+        // 错误处理
+        if rerr != nil {
+            if etcd.IsFatalError(rerr) {
+                c.status.SetReason(rerr.Error())
+                c.logger.Error(rerr, "cluster failed")
+                c.reportFailedStatus()
+                return
+            }
+        }
+    }
+}
+```
+
+#### 问题：cluster.New() 中启动的后台协程负责什么？
+**解答**：后台协程负责管理集群的整个生命周期，包括初始化、运行协调循环、处理事件和错误恢复。它是一个持续运行的独立线程，与 controller 的 Reconcile 循环并行工作。
+
+**职责**：
+1. **初始化**：调用 setup() 方法根据集群当前状态进行相应处理
+2. **运行管理**：调用 run() 方法启动主协调循环
+3. **事件处理**：监听和处理集群更新事件
+4. **状态监控**：定期检查Pod状态并更新集群状态
+5. **协调控制**：执行集群成员管理、扩缩容等操作
+6. **错误恢复**：处理运行时错误并进行恢复
+7. **生命周期管理**：响应停止信号，优雅关闭
+
+#### 问题：为什么 cluster.New() 要启动一个独立的后台协程？
+**解答**：启动独立后台协程的主要原因是为了实现持续的集群管理和监控，而不需要依赖 controller 的 Reconcile 事件驱动模型。这样可以提供更主动的管理能力。
+
+**优势**：
+1. **主动管理**：不需要等待Kubernetes事件就能主动进行协调
+2. **持续监控**：可以定期检查集群状态，及时发现问题
+3. **性能优化**：避免频繁触发Reconcile循环，减少API服务器压力
+4. **异步处理**：长时间运行的操作不会阻塞controller工作队列
+5. **精细控制**：可以实现更复杂的协调逻辑和状态机
+
+#### 问题：Cluster 结构体中的成员变量有什么作用？
+**解答**：Cluster 结构体的成员变量用于维护集群的完整状态和管理所需的所有信息。
+
+**核心成员**：
+```go
+type Cluster struct {
+    logger logr.Logger           // 日志记录器
+    config Config               // 配置信息（包括各种客户端）
+    cluster *etcdv1alpha1.EtcdCluster  // 集群CR对象
+    
+    // 集群的内存状态
+    status etcdv1alpha1.ClusterStatus  // 集群状态副本
+    
+    eventCh chan *clusterEvent   // 事件通道
+    stopCh  chan struct{}        // 停止信号通道
+    
+    // etcd集群成员集合
+    members etcd.MemberSet       // 成员信息
+    
+    tlsConfig *tls.Config        // TLS配置（暂未使用）
+}
+```
+
+#### 问题：cluster.New() 中 eventCh 和 stopCh 的作用是什么？
+**解答**：eventCh 和 stopCh 是用于协程间通信的通道，实现事件传递和生命周期管理。
+
+**eventCh**：
+- 类型：`chan *clusterEvent`
+- 作用：传递集群事件（如集群更新）
+- 缓冲：100个事件的缓冲区
+- 使用：run() 方法中通过 select 监听事件并处理
+
+**stopCh**：
+- 类型：`chan struct{}`
+- 作用：传递停止信号，用于优雅关闭
+- 使用：Delete() 方法中关闭通道，run() 方法监听关闭信号
+
+**示例**：
+```go
+// 发送事件
+func (c *Cluster) Update(cl *etcdv1alpha1.EtcdCluster) {
+    c.send(&clusterEvent{
+        typ:     eventModifyCluster,
+        cluster: cl,
+    })
+}
+
+// 优雅关闭
+func (c *Cluster) Delete() {
+    c.logger.Info("cluster is deleted by user")
+    close(c.stopCh)  // 发送停止信号
+}
+
+// 协程中监听信号
+func (c *Cluster) run() {
+    for {
+        select {
+        case <-c.stopCh:
+            return  // 收到停止信号，退出协程
+        case event := <-c.eventCh:
+            // 处理事件
+        }
+    }
+}
+```
