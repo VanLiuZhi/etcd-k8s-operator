@@ -10,11 +10,11 @@
 5. **Etcd 客户端模块** (`pkg/etcd/`) - 理解与 etcd 集群交互
 
 ### 1.2 下一步建议
-从 **CRD 定义模块** 开始学习，因为：
-- 它是整个系统的数据基础
-- 理解了 CRD 结构才能理解 Controller 如何处理资源
-- 相对独立，不依赖其他模块
-- 代码相对简单，容易理解
+CRD 定义模块学习已完成，Controller 核心模块学习进行中，建议下一步学习 **Cluster 管理模块** (`pkg/cluster/`)，因为：
+- Cluster 模块是 Controller 的核心依赖
+- 理解了 Cluster 模块才能理解具体的集群管理逻辑
+- Cluster 模块相对独立，但与 Controller 紧密协作
+- 需要结合 Controller 知识理解 Cluster 的实现
 
 ## 2. 需要掌握的核心模块
 

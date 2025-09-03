@@ -22,7 +22,9 @@ import (
 
 	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
 	"github.com/etcd-lz/etcd-k8s-operator/pkg/cluster"
+	"github.com/etcd-lz/etcd-k8s-operator/pkg/k8s"
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -155,6 +157,12 @@ func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, etcdCluster 
 	// - 删除 configmaps
 	// - 删除 PVCs
 
+	// 主动清理相关资源（未验证）
+	//if err := r.cleanupClusterResources(ctx, etcdCluster, logger); err != nil {
+	//	logger.Error(err, "Failed to cleanup cluster resources")
+	//	return ctrl.Result{}, err
+	//}
+
 	// 移除 finalizer
 	controllerutil.RemoveFinalizer(etcdCluster, etcdFinalizer)
 	if err := r.Update(ctx, etcdCluster); err != nil {
@@ -164,6 +172,85 @@ func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, etcdCluster 
 
 	logger.Info("EtcdCluster deletion completed")
 	return ctrl.Result{}, nil
+}
+
+// cleanupClusterResources 清理集群相关资源
+func (r *EtcdClusterReconciler) cleanupClusterResources(ctx context.Context, etcdCluster *etcdv1alpha1.EtcdCluster, logger logr.Logger) error {
+	// 删除 etcd pods
+	if err := r.deleteEtcdPods(ctx, etcdCluster, logger); err != nil {
+		return fmt.Errorf("failed to delete etcd pods: %v", err)
+	}
+
+	// 删除 services
+	if err := r.deleteEtcdServices(ctx, etcdCluster, logger); err != nil {
+		return fmt.Errorf("failed to delete etcd services: %v", err)
+	}
+
+	// 删除 PVCs
+	if err := r.deleteEtcdPVCs(ctx, etcdCluster, logger); err != nil {
+		return fmt.Errorf("failed to delete etcd PVCs: %v", err)
+	}
+
+	return nil
+}
+
+// deleteEtcdPods 删除etcd pods
+func (r *EtcdClusterReconciler) deleteEtcdPods(ctx context.Context, etcdCluster *etcdv1alpha1.EtcdCluster, logger logr.Logger) error {
+	// 使用标签选择器删除所有属于该集群的Pods
+	labels := map[string]string{
+		"etcd_cluster": etcdCluster.Name,
+		"app":          "etcd",
+	}
+
+	err := k8s.DeletePods(ctx, r.KubeCli, etcdCluster.Namespace, labels, 30)
+	if err != nil {
+		return fmt.Errorf("failed to delete etcd pods: %v", err)
+	}
+
+	logger.Info("Etcd pods deleted")
+	return nil
+}
+
+// deleteEtcdServices 删除etcd services
+func (r *EtcdClusterReconciler) deleteEtcdServices(ctx context.Context, etcdCluster *etcdv1alpha1.EtcdCluster, logger logr.Logger) error {
+	// 删除客户端服务
+	clientServiceName := k8s.ClientServiceName(etcdCluster.Name)
+	if err := k8s.DeleteService(ctx, r.KubeCli, clientServiceName, etcdCluster.Namespace); err != nil {
+		return fmt.Errorf("failed to delete client service: %v", err)
+	}
+
+	// 删除peer服务
+	if err := k8s.DeleteService(ctx, r.KubeCli, etcdCluster.Name, etcdCluster.Namespace); err != nil {
+		return fmt.Errorf("failed to delete peer service: %v", err)
+	}
+
+	logger.Info("Etcd services deleted")
+	return nil
+}
+
+// deleteEtcdPVCs 删除etcd PVCs
+func (r *EtcdClusterReconciler) deleteEtcdPVCs(ctx context.Context, etcdCluster *etcdv1alpha1.EtcdCluster, logger logr.Logger) error {
+	// 获取所有属于该集群的PVCs
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{
+		"etcd_cluster": etcdCluster.Name,
+	}}
+
+	pvcList, err := r.KubeCli.CoreV1().PersistentVolumeClaims(etcdCluster.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: metav1.FormatLabelSelector(&labelSelector),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list PVCs: %v", err)
+	}
+
+	// 删除每个PVC
+	for _, pvc := range pvcList.Items {
+		if err := k8s.DeletePVC(r.KubeCli, etcdCluster.Namespace, pvc.Name); err != nil {
+			return fmt.Errorf("failed to delete PVC %s: %v", pvc.Name, err)
+		}
+		logger.Info("Etcd PVC deleted", "pvc", pvc.Name)
+	}
+
+	return nil
 }
 
 // validateClusterSpec 验证集群规格

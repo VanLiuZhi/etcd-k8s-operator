@@ -804,3 +804,433 @@ func (c *Cluster) run() {
     }
 }
 ```
+
+### 2.10 集群协调机制详解
+
+#### 问题：集群协调循环是如何工作的？
+**解答**：集群协调循环是 cluster 模块的核心，通过定时检查集群状态并将其调整到期望状态来实现自动化管理。协调循环包括状态监控、成员管理、扩缩容控制等。
+
+**协调流程**：
+```go
+// reconcile 在 run() 方法中的定期协调循环中被调用
+func (c *Cluster) reconcile(pods []*corev1.Pod) error {
+    c.logger.Info("Start reconciling")
+    defer c.logger.Info("Finish reconciling")
+
+    defer func() {
+        c.status.Size = c.members.Size()  // 更新集群大小状态
+    }()
+
+    sp := c.cluster.Spec
+    running := podsToMemberSet(pods, c.isSecureClient())
+    
+    // 检查是否需要协调成员
+    if !running.IsEqual(c.members) || c.members.Size() != sp.Size {
+        return c.reconcileMembers(running)
+    }
+
+    // TODO: 检查是否需要升级
+    // if needUpgrade(pods, c.cluster.Spec) {
+    //     return c.upgradeOneMember(pods)
+    // }
+
+    c.status.SetReadyCondition()  // 设置就绪状态
+    return nil
+}
+
+// reconcileMembers 协调成员关系
+func (c *Cluster) reconcileMembers(running etcd.MemberSet) error {
+    c.logger.Info("running members", "members", running.String())
+    c.logger.Info("cluster membership", "members", c.members.String())
+
+    // 1. 移除不属于成员集合的未知Pod
+    unknownMembers := running.Diff(c.members)
+    if unknownMembers.Size() > 0 {
+        c.logger.Info("removing unexpected pods", "members", unknownMembers.String())
+        for _, m := range unknownMembers {
+            if err := c.removePod(m.Name); err != nil {
+                return err
+            }
+        }
+    }
+    
+    // 2. 计算剩余的合法成员
+    L := running.Diff(unknownMembers)
+
+    // 3. 如果成员数量匹配，执行扩缩容操作
+    if L.Size() == c.members.Size() {
+        return c.resize()
+    }
+
+    // 4. 检查是否满足法定人数
+    if L.Size() < c.members.Size()/2+1 {
+        return etcd.ErrLostQuorum  // 法定人数丢失错误
+    }
+
+    // 5. 移除死亡成员
+    c.logger.Info("removing one dead member")
+    return c.removeDeadMember(c.members.Diff(L).PickOne())
+}
+```
+
+#### 问题：集群扩缩容是如何实现的？
+**解答**：集群扩缩容通过 resize() 方法实现，根据当前成员数量和期望大小来决定是添加成员还是移除成员。
+
+**扩缩容实现**：
+```go
+// resize 调整集群大小
+func (c *Cluster) resize() error {
+    if c.members.Size() == c.cluster.Spec.Size {
+        return nil  // 大小已匹配，无需调整
+    }
+
+    if c.members.Size() < c.cluster.Spec.Size {
+        return c.addOneMember()  // 添加成员
+    }
+
+    return c.removeOneMember()  // 移除成员
+}
+
+// addOneMember 添加一个成员
+func (c *Cluster) addOneMember() error {
+    c.status.SetScalingUpCondition(c.members.Size(), c.cluster.Spec.Size)
+
+    // 1. 创建etcd客户端连接
+    _, err := etcd.CreateClient(c.members.ClientURLs(), c.tlsConfig)
+    if err != nil {
+        return fmt.Errorf("failed to create etcd client: %v", err)
+    }
+
+    // 2. 生成新成员
+    newMember := c.newMember()
+
+    // 3. 向etcd集群添加成员
+    resp, err := etcd.AddMember(c.members.ClientURLs(), c.tlsConfig, []string{newMember.PeerURL()})
+    if err != nil {
+        return fmt.Errorf("failed to add new member (%s): %v", newMember.Name, err)
+    }
+    newMember.ID = resp.Member.ID
+    c.members.Add(newMember)
+
+    // 4. 创建Kubernetes Pod
+    if err := c.createPod(c.members, newMember, "existing"); err != nil {
+        // 回滚：从etcd集群中移除已添加的成员
+        etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, newMember.ID)
+        c.members.Remove(newMember.Name)
+        return fmt.Errorf("failed to create member's pod (%s): %v", newMember.Name, err)
+    }
+
+    c.logger.Info("added member", "member", newMember.Name)
+
+    // 5. 记录事件
+    event := k8s.NewMemberAddEvent(newMember.Name, c.cluster)
+    c.config.Recorder.Event(c.cluster, event.Type, event.Reason, event.Message)
+
+    return nil
+}
+
+// removeOneMember 移除一个成员
+func (c *Cluster) removeOneMember() error {
+    c.status.SetScalingDownCondition(c.members.Size(), c.cluster.Spec.Size)
+    return c.removeMember(c.members.PickOne())
+}
+```
+
+#### 问题：集群故障恢复机制是怎样的？
+**解答**：集群故障恢复机制包括检测死亡成员、移除故障节点、创建新成员等步骤，确保集群的高可用性和数据一致性。
+
+**故障恢复实现**：
+```go
+// removeDeadMember 移除死亡成员
+func (c *Cluster) removeDeadMember(toRemove *etcd.Member) error {
+    c.logger.Info("removing dead member", "member", toRemove.Name)
+    event := k8s.ReplacingDeadMemberEvent(toRemove.Name, c.cluster)
+    c.config.Recorder.Event(c.cluster, event.Type, event.Reason, event.Message)
+
+    return c.removeMember(toRemove)
+}
+
+// removeMember 移除成员（包括etcd集群和Kubernetes资源）
+func (c *Cluster) removeMember(toRemove *etcd.Member) (err error) {
+    defer func() {
+        if err != nil {
+            err = fmt.Errorf("remove member (%s) failed: %v", toRemove.Name, err)
+        }
+    }()
+
+    // 1. 从etcd集群中移除成员
+    err = etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, toRemove.ID)
+    if err != nil {
+        return err
+    }
+    c.members.Remove(toRemove.Name)
+
+    // 2. 记录事件
+    event := k8s.NewMemberRemoveEvent(toRemove.Name, c.cluster)
+    c.config.Recorder.Event(c.cluster, event.Type, event.Reason, event.Message)
+
+    // 3. 删除Pod
+    if err := c.removePod(toRemove.Name); err != nil {
+        return err
+    }
+
+    // 4. 如果启用了持久卷，删除PVC
+    if c.isPodPVEnabled() {
+        err = k8s.DeletePVC(c.config.KubeCli, c.cluster.Namespace, k8s.PVCNameFromMember(toRemove.Name))
+        if err != nil {
+            return err
+        }
+    }
+
+    c.logger.Info("removed member", "member", toRemove.Name, "id", toRemove.ID)
+    return nil
+}
+```
+
+### 2.11 Controller 与 Cluster 协作机制
+
+#### 问题：Controller 和 Cluster 模块是如何协作的？
+**解答**：Controller 作为 Kubernetes 控制器负责监听 EtcdCluster 资源的变化并创建/更新 Cluster 实例，而 Cluster 模块负责具体的集群管理操作。两者通过事件驱动模型进行协作。
+
+**协作流程**：
+```go
+// Controller 中的 Reconcile 方法
+func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    logger := log.FromContext(ctx).WithValues("etcdcluster", req.NamespacedName)
+    
+    // 1. 获取 EtcdCluster 资源
+    etcdCluster := &etcdv1alpha1.EtcdCluster{}
+    if err := r.Get(ctx, req.NamespacedName, etcdCluster); err != nil {
+        if apierrors.IsNotFound(err) {
+            // 资源已删除，清理 Cluster 实例
+            if r.clusters != nil {
+                delete(r.clusters, req.NamespacedName.String())
+            }
+            return ctrl.Result{}, nil
+        }
+        return ctrl.Result{}, err
+    }
+
+    // 2. 处理删除事件
+    if etcdCluster.DeletionTimestamp != nil {
+        return r.handleDeletion(ctx, etcdCluster, logger)
+    }
+
+    // 3. 初始化集群映射
+    if r.clusters == nil {
+        r.clusters = make(map[string]*cluster.Cluster)
+    }
+
+    clusterKey := req.NamespacedName.String()
+
+    // 4. 检查是否已存在集群实例
+    if existingCluster, exists := r.clusters[clusterKey]; exists {
+        // 更新现有集群实例
+        existingCluster.Update(etcdCluster)
+        logger.Info("Updated existing cluster")
+    } else {
+        // 创建新的集群实例
+        config := cluster.Config{
+            ServiceAccount: "default",
+            KubeCli:        r.KubeCli,
+            Client:         r.Client,
+            Recorder:       r.Recorder,
+        }
+
+        newCluster := cluster.New(config, etcdCluster, logger)
+        r.clusters[clusterKey] = newCluster
+        logger.Info("Created new cluster")
+    }
+
+    return ctrl.Result{}, nil
+}
+
+// Cluster 模块中的 Update 方法
+func (c *Cluster) Update(cl *etcdv1alpha1.EtcdCluster) {
+    c.send(&clusterEvent{
+        typ:     eventModifyCluster,
+        cluster: cl,
+    })
+}
+```
+
+#### 问题：两种模块设计模式有什么区别？
+**解答**：Controller-Cluster 模式采用事件驱动+持续监控的混合架构，Controller 负责资源生命周期管理，Cluster 负责具体的集群操作。
+
+**两种模式对比**：
+1. **Controller 负责**：
+   - 监听 Kubernetes 资源变化
+   - 管理 Cluster 实例生命周期
+   - 处理资源创建、更新、删除事件
+   - 管理 Finalizer 和垃圾回收
+
+2. **Cluster 负责**：
+   - 持续监控 etcd 集群状态
+   - 执行成员管理、扩缩容等操作
+   - 处理故障恢复
+   - 与 etcd 集群直接交互
+
+**优势**：
+- **职责分离**：Controller 专注 Kubernetes 资源管理，Cluster 专注 etcd 集群管理
+- **事件驱动**：通过 Kubernetes Watch 机制实现高效资源监听
+- **主动监控**：Cluster 模块独立运行，可主动发现问题并处理
+- **异步处理**：长时间运行的操作不会阻塞 controller 工作队列
+
+#### 问题：为什么不直接在 Controller 中完成所有操作？
+**解答**：将集群管理操作分离到独立的 Cluster 模块有多个优势，主要是为了实现更精细的控制和更好的性能。
+
+**原因分析**：
+1. **持续监控需求**：etcd 集群需要持续监控状态，而 controller 基于事件驱动
+2. **操作复杂性**：集群管理涉及多个步骤，需要状态机来管理
+3. **性能考虑**：避免在 controller 中执行长时间运行的操作
+4. **错误处理**：独立模块可以实现更复杂的错误恢复机制
+5. **扩展性**：便于添加更多集群管理功能
+
+### 2.12 资源清理机制
+
+#### 问题：Kubernetes Operator 中如何处理资源清理？
+**解答**：资源清理是 Operator 开发中的重要环节，通常采用 Finalizer + OwnerReference + 主动清理的组合机制来确保资源被正确删除。
+
+**清理机制详解**：
+```go
+// 1. Finalizer 机制 - 确保自定义清理逻辑执行完毕
+func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    etcdCluster := &etcdv1alpha1.EtcdCluster{}
+    if err := r.Get(ctx, req.NamespacedName, etcdCluster); err != nil {
+        return ctrl.Result{}, client.IgnoreNotFound(err)
+    }
+    
+    // 处理删除
+    if etcdCluster.DeletionTimestamp != nil {
+        if controllerutil.ContainsFinalizer(etcdCluster, etcdFinalizer) {
+            // 执行自定义清理逻辑
+            if err := r.customCleanup(etcdCluster); err != nil {
+                return ctrl.Result{}, err
+            }
+            
+            // 移除 Finalizer，允许 Kubernetes 进行自动垃圾回收
+            controllerutil.RemoveFinalizer(etcdCluster, etcdFinalizer)
+            if err := r.Update(ctx, etcdCluster); err != nil {
+                return ctrl.Result{}, err
+            }
+        }
+        return ctrl.Result{}, nil
+    }
+    
+    // 添加 Finalizer
+    if !controllerutil.ContainsFinalizer(etcdCluster, etcdFinalizer) {
+        controllerutil.AddFinalizer(etcdCluster, etcdFinalizer)
+        if err := r.Update(ctx, etcdCluster); err != nil {
+            return ctrl.Result{}, err
+        }
+    }
+    
+    // 正常处理逻辑...
+    return ctrl.Result{}, nil
+}
+
+// 2. OwnerReference 机制 - Kubernetes 自动垃圾回收
+func NewEtcdPod(m *etcd.Member, initialCluster []string, clusterName, state, token string, cluster *etcdv1alpha1.EtcdCluster, owner metav1.OwnerReference) *corev1.Pod {
+    pod := newEtcdPod(m, initialCluster, clusterName, state, token, cluster)
+    applyPodPolicy(clusterName, pod, cluster.Spec.Pod)
+    addOwnerRefToObject(pod, owner)  // 设置 OwnerReference
+    return pod
+}
+
+// 3. 主动清理机制 - 增强清理的可靠性
+func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, etcdCluster *etcdv1alpha1.EtcdCluster, logger logr.Logger) (ctrl.Result, error) {
+    logger.Info("Handling etcd cluster deletion")
+
+    clusterKey := fmt.Sprintf("%s/%s", etcdCluster.Namespace, etcdCluster.Name)
+
+    // 删除集群实例
+    if r.clusters != nil {
+        if clusterInstance, exists := r.clusters[clusterKey]; exists {
+            clusterInstance.Delete()
+            delete(r.clusters, clusterKey)
+            logger.Info("Cluster instance deleted")
+        }
+    }
+
+    // 主动清理相关资源
+    if err := r.cleanupClusterResources(ctx, etcdCluster, logger); err != nil {
+        logger.Error(err, "Failed to cleanup cluster resources")
+        return ctrl.Result{}, err
+    }
+
+    // 移除 finalizer
+    controllerutil.RemoveFinalizer(etcdCluster, etcdFinalizer)
+    if err := r.Update(ctx, etcdCluster); err != nil {
+        logger.Error(err, "Failed to remove finalizer")
+        return ctrl.Result{}, err
+    }
+
+    logger.Info("EtcdCluster deletion completed")
+    return ctrl.Result{}, nil
+}
+```
+
+#### 问题：三种清理机制有什么区别和联系？
+**解答**：三种清理机制各有特点，通常组合使用以确保资源被彻底清理。
+
+**机制对比**：
+1. **Finalizer 机制**：
+   - **作用**：防止资源被立即删除，确保自定义清理逻辑执行完毕
+   - **特点**：开发者控制，可执行复杂清理逻辑
+   - **使用场景**：需要执行自定义清理操作（如数据备份、外部资源清理等）
+
+2. **OwnerReference 机制**：
+   - **作用**：建立父子资源关系，Kubernetes 自动清理子资源
+   - **特点**：Kubernetes 原生支持，自动处理，高效可靠
+   - **使用场景**：清理关联的 Pods、Services、PVCs 等 Kubernetes 资源
+
+3. **主动清理机制**：
+   - **作用**：在删除时主动调用 Kubernetes API 删除相关资源
+   - **特点**：增强清理可靠性，提供详细错误处理和日志记录
+   - **使用场景**：作为额外保障，确保资源被彻底清理
+
+**协作流程**：
+```go
+// 删除处理流程：
+// 1. 用户执行删除命令
+// 2. Kubernetes 设置 DeletionTimestamp
+// 3. Controller 检测到 DeletionTimestamp，执行清理逻辑
+// 4. 执行主动清理（删除 Pods、Services、PVCs 等）
+// 5. 执行自定义清理逻辑（如数据备份等）
+// 6. 移除 Finalizer
+// 7. Kubernetes 检查 OwnerReference 关系，自动删除剩余子资源
+// 8. 资源完全删除
+```
+
+#### 问题：为什么需要主动清理机制？
+**解答**：虽然 OwnerReference 机制可以自动清理大部分资源，但主动清理机制提供了额外的保障和更好的错误处理能力。
+
+**主动清理的优势**：
+1. **增强可靠性**：即使 OwnerReference 机制失效，也能确保资源被清理
+2. **详细错误处理**：可以捕获和处理清理过程中的具体错误
+3. **日志记录**：提供详细的清理过程日志，便于问题排查
+4. **灵活性**：可以按需清理特定资源，支持复杂的清理逻辑
+5. **兼容性**：在不同 Kubernetes 版本和环境中行为一致
+
+**实现示例**：
+```go
+// cleanupClusterResources 清理集群相关资源
+func (r *EtcdClusterReconciler) cleanupClusterResources(ctx context.Context, etcdCluster *etcdv1alpha1.EtcdCluster, logger logr.Logger) error {
+    // 删除 etcd pods
+    if err := r.deleteEtcdPods(ctx, etcdCluster, logger); err != nil {
+        return fmt.Errorf("failed to delete etcd pods: %v", err)
+    }
+
+    // 删除 services
+    if err := r.deleteEtcdServices(ctx, etcdCluster, logger); err != nil {
+        return fmt.Errorf("failed to delete etcd services: %v", err)
+    }
+
+    // 删除 PVCs
+    if err := r.deleteEtcdPVCs(ctx, etcdCluster, logger); err != nil {
+        return fmt.Errorf("failed to delete etcd PVCs: %v", err)
+    }
+
+    return nil
+}
+```

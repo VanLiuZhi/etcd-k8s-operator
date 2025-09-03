@@ -163,10 +163,175 @@ func (cs *ClusterStatus) setClusterCondition(newCondition ClusterCondition) {
 - **Status (观察状态)**: 系统实际的集群状态
 - **Controller 职责**: 不断调整实际状态向期望状态靠近
 
+**深入理解**：
+1. **声明式 API**: 用户只需声明期望状态，系统负责实现
+2. **幂等性**: 多次应用相同的 Spec 应该产生相同的结果
+3. **异步处理**: 复杂操作可以在后台进行，通过 Status 反馈进度
+4. **状态收敛**: Controller 持续工作确保实际状态向期望状态收敛
+
 #### Group-Version-Kind (GVK)
 - **Group**: API 组名 (k8s.etcd.lz)
 - **Version**: API 版本 (v1alpha1)
 - **Kind**: 资源类型 (EtcdCluster)
+
+**GVK 作用**：
+1. **唯一标识**: 在 Kubernetes 中唯一标识一个资源类型
+2. **API 路由**: Kubernetes API Server 根据 GVK 路由到相应的处理逻辑
+3. **版本管理**: 支持 API 版本演进和向后兼容
+4. **RBAC 控制**: 基于 GVK 的权限控制
+
+### 3.2 状态管理深度解析
+
+#### ClusterPhase 阶段管理
+ClusterPhase 是集群生命周期的核心状态表示：
+
+```go
+const (
+    ClusterPhaseNone ClusterPhase = ""      // 初始状态，未开始创建
+    ClusterPhaseCreating = "Creating"       // 集群创建中
+    ClusterPhaseRunning = "Running"         // 集群正常运行
+    ClusterPhaseFailed = "Failed"           // 集群失败
+)
+
+// 状态转换示例：
+// None → Creating → Running (正常创建流程)
+// None → Creating → Failed (创建失败)
+// Running → Failed (运行时故障)
+```
+
+**阶段管理要点**：
+1. **明确性**: 每个阶段都有明确的含义和处理逻辑
+2. **可追踪**: 通过 Reason 字段提供阶段转换的详细原因
+3. **可观测**: 便于用户和监控系统理解集群状态
+
+#### ClusterCondition 条件管理
+ClusterCondition 提供更细粒度的状态信息：
+
+```go
+type ClusterCondition struct {
+    Type ClusterConditionType `json:"type"`               // 条件类型
+    Status corev1.ConditionStatus `json:"status"`          // 状态 (True/False/Unknown)
+    LastUpdateTime string `json:"lastUpdateTime,omitempty"` // 最后更新时间
+    LastTransitionTime string `json:"lastTransitionTime,omitempty"` // 最后转换时间
+    Reason string `json:"reason,omitempty"`              // 转换原因
+    Message string `json:"message,omitempty"`            // 详细信息
+}
+```
+
+**条件使用场景**：
+1. **Scaling**: 扩缩容操作的状态反馈
+2. **Upgrading**: 升级操作的进度跟踪
+3. **Recovering**: 故障恢复的操作状态
+4. **Available**: 集群可用性状态
+
+### 3.3 配置策略详解
+
+#### PodPolicy 策略配置
+PodPolicy 提供了丰富的 Pod 配置选项：
+
+```go
+type PodPolicy struct {
+    Labels map[string]string `json:"labels,omitempty"`
+    NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+    Affinity *corev1.Affinity `json:"affinity,omitempty"`
+    Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+    Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+    EtcdEnv []corev1.EnvVar `json:"etcdEnv,omitempty"`
+    PersistentVolumeClaimSpec *corev1.PersistentVolumeClaimSpec `json:"persistentVolumeClaimSpec,omitempty"`
+    Annotations map[string]string `json:"annotations,omitempty"`
+}
+```
+
+**配置要点**：
+1. **资源管理**: 合理设置 Requests 和 Limits
+2. **调度策略**: 通过 Affinity 和 NodeSelector 控制 Pod 分布
+3. **存储配置**: PersistentVolumeClaimSpec 支持持久化存储
+4. **环境变量**: EtcdEnv 允许自定义 etcd 进程配置
+
+#### TLSPolicy 安全配置
+TLSPolicy 提供了 etcd 集群的安全通信支持：
+
+```go
+type TLSPolicy struct {
+    Static *StaticTLS `json:"static,omitempty"`
+}
+
+type StaticTLS struct {
+    Member *MemberSecret `json:"member,omitempty"`
+    OperatorSecret string `json:"operatorSecret,omitempty"`
+}
+
+type MemberSecret struct {
+    PeerSecret string `json:"peerSecret,omitempty"`
+    ServerSecret string `json:"serverSecret,omitempty"`
+}
+```
+
+**安全要点**：
+1. **Peer TLS**: 保护 etcd 成员间的通信
+2. **Server TLS**: 保护客户端与 etcd 的通信
+3. **Operator TLS**: 保护 Operator 与 etcd 集群的通信
+4. **证书管理**: 通过 Kubernetes Secrets 管理证书
+
+### 3.4 验证和默认值机制
+
+#### 字段验证
+Kubebuilder 注解提供了强大的字段验证能力：
+
+```go
+// +kubebuilder:validation:Minimum=1
+// +kubebuilder:validation:Maximum=7
+// +kubebuilder:validation:Pattern=^[0-9]+\.[0-9]+\.[0-9]+$
+// +kubebuilder:default=3
+Size int `json:"size"`
+Version string `json:"version,omitempty"`
+```
+
+**验证类型**：
+1. **数值范围验证**: Minimum/Maximum 限制数值范围
+2. **格式验证**: Pattern 使用正则表达式验证格式
+3. **默认值**: default 提供合理的默认值
+4. **可选性**: omitempty 标记可选字段
+
+#### SetDefaults 方法
+SetDefaults 方法处理复杂的默认值逻辑：
+
+```go
+func (e *EtcdCluster) SetDefaults() {
+    c := &e.Spec
+    // 设置默认镜像仓库和版本
+    if len(c.Repository) == 0 {
+        c.Repository = defaultRepository
+    }
+    if len(c.Version) == 0 {
+        c.Version = DefaultEtcdVersion
+    }
+    
+    // 移除版本号前的 'v' 前缀
+    if len(c.Version) > 0 && c.Version[0] == 'v' {
+        c.Version = c.Version[1:]
+    }
+    
+    // 添加默认反亲和性配置
+    if c.Pod != nil && c.Pod.Affinity == nil {
+        c.Pod.Affinity = &corev1.Affinity{
+            PodAntiAffinity: &corev1.PodAntiAffinity{
+                PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+                    {
+                        Weight: 100,
+                        PodAffinityTerm: corev1.PodAffinityTerm{
+                            LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+                                "etcd_cluster": e.Name,
+                            }},
+                            TopologyKey: "kubernetes.io/hostname",
+                        },
+                    },
+                },
+            },
+        }
+    }
+}
+```
 
 ### 3.2 关键知识点
 
