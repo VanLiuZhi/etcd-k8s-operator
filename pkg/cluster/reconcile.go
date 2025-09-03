@@ -239,37 +239,3 @@ func podsToMemberSet(pods []*corev1.Pod, secureClient bool) etcd.MemberSet {
 	return members
 }
 
-// updateMembers 更新成员
-func (c *Cluster) updateMembers(running etcd.MemberSet) error {
-	_, err := etcd.CreateClient(running.ClientURLs(), c.tlsConfig)
-	if err != nil {
-		return err
-	}
-
-	resp, err := etcd.ListMembers(running.ClientURLs(), c.tlsConfig)
-	if err != nil {
-		return err
-	}
-
-	members := etcd.NewMemberSet()
-	for _, m := range resp.Members {
-		id := m.ID
-		name := m.Name
-
-		if len(name) == 0 {
-			c.logger.Info("member has no name, skipping", "id", id)
-			continue
-		}
-
-		members.Add(&etcd.Member{
-			Name:         name,
-			Namespace:    c.cluster.Namespace,
-			ID:           id,
-			SecureClient: c.isSecureClient(),
-			SecurePeer:   c.isSecurePeer(),
-		})
-	}
-
-	c.members = members
-	return nil
-}

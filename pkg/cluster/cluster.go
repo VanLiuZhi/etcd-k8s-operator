@@ -279,7 +279,8 @@ func (c *Cluster) recoverFromRunning() error {
 		return nil
 	}
 
-	return c.updateMembers(podsToMemberSet(running, c.isSecureClient()))
+	c.members = podsToMemberSet(running, c.isSecureClient())
+	return nil
 }
 
 // updateCRStatus 更新CR状态
@@ -347,13 +348,8 @@ func (c *Cluster) run() {
 				break
 			}
 
-			// 在控制器恢复时，我们可能有"members == nil"
-			if rerr != nil || c.members == nil {
-				rerr = c.updateMembers(podsToMemberSet(running, c.isSecureClient()))
-				if rerr != nil {
-					c.logger.Error(rerr, "failed to update members")
-					break
-				}
+			if c.members == nil {
+				c.members = podsToMemberSet(running, c.isSecureClient())
 			}
 
 			rerr = c.reconcile(running)
