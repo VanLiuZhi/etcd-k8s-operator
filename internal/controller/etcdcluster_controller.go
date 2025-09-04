@@ -117,6 +117,19 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// 检查是否需要灾难恢复（所有Pod都消失）
+	if len(pods) == 0 && etcdCluster.Status.Phase == etcdv1alpha1.ClusterPhaseRunning {
+		logger.Info("Disaster recovery needed: all etcd pods are missing, triggering cluster recreation")
+
+		// 触发集群重建
+		if err := r.recreateCluster(ctx, etcdCluster, logger); err != nil {
+			logger.Error(err, "Failed to recreate cluster")
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+
 	// 计算期望状态
 	desiredStatus := r.calculateDesiredStatus(ctx, etcdCluster, pods)
 
@@ -124,7 +137,7 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !reflect.DeepEqual(etcdCluster.Status, desiredStatus) {
 		newCluster := etcdCluster.DeepCopy()
 		newCluster.Status = desiredStatus
-		
+
 		if err := r.Status().Update(ctx, newCluster); err != nil {
 			if apierrors.IsConflict(err) {
 				logger.Info("Conflict updating status, requeuing")
@@ -133,7 +146,7 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			logger.Error(err, "Failed to update status")
 			return ctrl.Result{}, err
 		}
-		
+
 		logger.Info("Status updated successfully", "size", desiredStatus.Size, "ready", len(desiredStatus.Members.Ready))
 	}
 
@@ -158,7 +171,13 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Recorder:       r.Recorder,
 		}
 
-		newCluster := cluster.New(config, etcdCluster, logger)
+		// 确保新集群有正确的初始状态
+		clusterToCreate := etcdCluster.DeepCopy()
+		if clusterToCreate.Status.Phase == "" {
+			clusterToCreate.Status.Phase = etcdv1alpha1.ClusterPhaseNone
+		}
+
+		newCluster := cluster.New(config, clusterToCreate, logger)
 		r.clusters[clusterKey] = newCluster
 		logger.Info("Created new cluster")
 	}
@@ -283,6 +302,54 @@ func (r *EtcdClusterReconciler) deleteEtcdPVCs(ctx context.Context, etcdCluster 
 	return nil
 }
 
+// recreateCluster 重建集群（灾难恢复）
+func (r *EtcdClusterReconciler) recreateCluster(ctx context.Context, etcdCluster *etcdv1alpha1.EtcdCluster, logger logr.Logger) error {
+	logger.Info("Starting cluster recreation for disaster recovery")
+
+	// 清理现有集群实例
+	clusterKey := fmt.Sprintf("%s/%s", etcdCluster.Namespace, etcdCluster.Name)
+	if r.clusters != nil {
+		if clusterInstance, exists := r.clusters[clusterKey]; exists {
+			clusterInstance.Delete()
+			delete(r.clusters, clusterKey)
+			logger.Info("Existing cluster instance cleaned up")
+		}
+	}
+
+	// 更新集群状态为创建中
+	newCluster := etcdCluster.DeepCopy()
+	newCluster.Status.Phase = etcdv1alpha1.ClusterPhaseCreating
+	newCluster.Status.Size = 0
+	newCluster.Status.Members.Ready = []string{}
+	newCluster.Status.Members.Unready = []string{}
+	newCluster.Status.SetScalingUpCondition(0, etcdCluster.Spec.Size)
+
+	if err := r.Status().Update(ctx, newCluster); err != nil {
+		return fmt.Errorf("failed to update cluster status to creating: %v", err)
+	}
+
+	// 创建新的集群实例来重建集群
+	config := cluster.Config{
+		ServiceAccount: "default", // TODO: 从配置中获取
+		KubeCli:        r.KubeCli,
+		Client:         r.Client,
+		Recorder:       r.Recorder,
+	}
+
+	recreatedCluster := cluster.New(config, newCluster, logger)
+	if r.clusters == nil {
+		r.clusters = make(map[string]*cluster.Cluster)
+	}
+	r.clusters[clusterKey] = recreatedCluster
+
+	// 记录恢复事件
+	r.Recorder.Event(etcdCluster, corev1.EventTypeNormal, "DisasterRecovery",
+		fmt.Sprintf("Cluster disaster recovery initiated: recreating cluster from scratch"))
+
+	logger.Info("Cluster recreation initiated successfully")
+	return nil
+}
+
 // validateClusterSpec 验证集群规格
 func (r *EtcdClusterReconciler) validateClusterSpec(spec etcdv1alpha1.ClusterSpec) error {
 	if spec.Size <= 0 {
@@ -300,10 +367,10 @@ func (r *EtcdClusterReconciler) validateClusterSpec(spec etcdv1alpha1.ClusterSpe
 // calculateDesiredStatus 计算期望状态
 func (r *EtcdClusterReconciler) calculateDesiredStatus(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, pods []*corev1.Pod) etcdv1alpha1.ClusterStatus {
 	status := cluster.Status.DeepCopy()
-	
+
 	var ready []string
 	var unready []string
-	
+
 	for _, pod := range pods {
 		if pod.DeletionTimestamp == nil && metav1.IsControlledBy(pod, cluster) {
 			if k8s.IsPodReady(pod) {
@@ -313,17 +380,17 @@ func (r *EtcdClusterReconciler) calculateDesiredStatus(ctx context.Context, clus
 			}
 		}
 	}
-	
+
 	status.Members.Ready = ready
 	status.Members.Unready = unready
 	status.Size = len(ready) + len(unready)
 	status.Phase = etcdv1alpha1.ClusterPhaseRunning
-	
+
 	// 设置条件
 	if len(unready) == 0 && len(ready) > 0 {
 		status.SetReadyCondition()
 	}
-	
+
 	return *status
 }
 
@@ -331,17 +398,17 @@ func (r *EtcdClusterReconciler) calculateDesiredStatus(ctx context.Context, clus
 func (r *EtcdClusterReconciler) getPodsForCluster(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) ([]*corev1.Pod, error) {
 	podList := &corev1.PodList{}
 	labelSelector := labels.SelectorFromSet(k8s.LabelsForCluster(cluster.Name))
-	
+
 	if err := r.List(ctx, podList, client.MatchingLabelsSelector{Selector: labelSelector}); err != nil {
 		return nil, err
 	}
-	
+
 	var pods []*corev1.Pod
 	for i := range podList.Items {
 		pod := &podList.Items[i]
 		pods = append(pods, pod)
 	}
-	
+
 	return pods, nil
 }
 

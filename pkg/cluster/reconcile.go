@@ -238,4 +238,3 @@ func podsToMemberSet(pods []*corev1.Pod, secureClient bool) etcd.MemberSet {
 	}
 	return members
 }
-

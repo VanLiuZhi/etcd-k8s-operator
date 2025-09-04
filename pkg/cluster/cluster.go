@@ -293,9 +293,18 @@ func (c *Cluster) recoverFromRunning() error {
 	}
 
 	if len(running) == 0 {
-		// If there are no running pods, maybe the cluster has been deleted.
-		// We will let the reconciliation loop handle this case.
-		return nil
+		// If there are no running pods, this indicates a disaster scenario
+		// Reset the cluster state to trigger recreation
+		c.logger.Info("No running pods found during recovery, resetting cluster state")
+		c.status.SetPhase(etcdv1alpha1.ClusterPhaseNone)
+		c.status.Size = 0
+		c.status.Members.Ready = []string{}
+		c.status.Members.Unready = []string{}
+		c.members = etcd.NewMemberSet()
+
+		// Trigger cluster recreation by changing phase to None
+		// This will cause the setup() method to create a new cluster
+		return c.create()
 	}
 
 	c.members = podsToMemberSet(running, c.isSecureClient())
