@@ -103,9 +103,10 @@ func New(config Config, cl *etcdv1alpha1.EtcdCluster, logger logr.Logger) *Clust
 			if c.status.Phase != etcdv1alpha1.ClusterPhaseFailed {
 				c.status.SetReason(err.Error())
 				c.status.SetPhase(etcdv1alpha1.ClusterPhaseFailed)
-				if err := c.updateCRStatus(); err != nil {
-					c.logger.Error(err, "failed to update cluster phase", "phase", etcdv1alpha1.ClusterPhaseFailed)
-				}
+				// 状态管理现在由Reconciler负责，这里不再更新
+				// if err := c.updateCRStatus(); err != nil {
+				// 	c.logger.Error(err, "failed to update cluster phase", "phase", etcdv1alpha1.ClusterPhaseFailed)
+				// }
 			}
 			return
 		}
@@ -139,9 +140,10 @@ func (c *Cluster) setup() error {
 func (c *Cluster) create() error {
 	c.status.SetPhase(etcdv1alpha1.ClusterPhaseCreating)
 
-	if err := c.updateCRStatus(); err != nil {
-		return fmt.Errorf("cluster create: failed to update cluster phase (%v): %v", etcdv1alpha1.ClusterPhaseCreating, err)
-	}
+	// 状态管理现在由Reconciler负责，这里不再更新
+	// if err := c.updateCRStatus(); err != nil {
+	// 	return fmt.Errorf("cluster create: failed to update cluster phase (%v): %v", etcdv1alpha1.ClusterPhaseCreating, err)
+	// }
 	c.logClusterCreation()
 
 	return c.prepareSeedMember()
@@ -305,10 +307,11 @@ func (c *Cluster) updateCRStatus() error {
 // run 运行集群管理主循环
 func (c *Cluster) run() {
 	c.status.SetPhase(etcdv1alpha1.ClusterPhaseRunning)
-	if err := c.updateCRStatus(); err != nil {
-		c.logger.Error(err, "failed to update cluster phase to running")
-		return
-	}
+	// 状态管理现在由Reconciler负责，这里不再更新
+	// if err := c.updateCRStatus(); err != nil {
+	// 	c.logger.Error(err, "failed to update cluster phase to running")
+	// 	return
+	// }
 
 	c.logger.Info("start running cluster")
 
@@ -358,10 +361,11 @@ func (c *Cluster) run() {
 				break
 			}
 
+			// 状态管理现在由Reconciler负责，这里不再更新
 			c.updateMemberStatus(running)
-			if err := c.updateCRStatus(); err != nil {
-				c.logger.Error(err, "periodic update CR status failed")
-			}
+			// if err := c.updateCRStatus(); err != nil {
+			// 	c.logger.Error(err, "periodic update CR status failed")
+			// }
 
 			c.logger.V(1).Info("reconcile completed", "duration", time.Since(start))
 		}
@@ -385,9 +389,10 @@ func isSpecEqual(s1, s2 etcdv1alpha1.ClusterSpec) bool {
 // reportFailedStatus 报告失败状态
 func (c *Cluster) reportFailedStatus() {
 	c.status.SetPhase(etcdv1alpha1.ClusterPhaseFailed)
-	if err := c.updateCRStatus(); err != nil {
-		c.logger.Error(err, "failed to update failed status")
-	}
+	// 状态管理现在由Reconciler负责，这里不再更新
+	// if err := c.updateCRStatus(); err != nil {
+	// 	c.logger.Error(err, "failed to update failed status")
+	// }
 }
 
 // pollPods 轮询Pod状态

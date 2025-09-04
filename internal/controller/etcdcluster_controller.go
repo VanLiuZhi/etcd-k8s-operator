@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"time"
 
 	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
 	"github.com/etcd-lz/etcd-k8s-operator/pkg/cluster"
@@ -28,6 +30,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
@@ -107,7 +110,34 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	// 初始化集群映射
+	// 获取集群Pod并计算状态
+	pods, err := r.getPodsForCluster(ctx, etcdCluster)
+	if err != nil {
+		logger.Error(err, "Failed to get pods for cluster")
+		return ctrl.Result{}, err
+	}
+
+	// 计算期望状态
+	desiredStatus := r.calculateDesiredStatus(ctx, etcdCluster, pods)
+
+	// 原子性更新状态
+	if !reflect.DeepEqual(etcdCluster.Status, desiredStatus) {
+		newCluster := etcdCluster.DeepCopy()
+		newCluster.Status = desiredStatus
+		
+		if err := r.Status().Update(ctx, newCluster); err != nil {
+			if apierrors.IsConflict(err) {
+				logger.Info("Conflict updating status, requeuing")
+				return ctrl.Result{Requeue: true}, nil
+			}
+			logger.Error(err, "Failed to update status")
+			return ctrl.Result{}, err
+		}
+		
+		logger.Info("Status updated successfully", "size", desiredStatus.Size, "ready", len(desiredStatus.Members.Ready))
+	}
+
+	// 初始化集群映射（用于业务逻辑管理）
 	if r.clusters == nil {
 		r.clusters = make(map[string]*cluster.Cluster)
 	}
@@ -120,7 +150,7 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		existingCluster.Update(etcdCluster)
 		logger.Info("Updated existing cluster")
 	} else {
-		// 创建新的集群实例
+		// 创建新的集群实例（用于业务逻辑，状态管理由Reconciler负责）
 		config := cluster.Config{
 			ServiceAccount: "default", // TODO: 从配置中获取
 			KubeCli:        r.KubeCli,
@@ -133,7 +163,7 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		logger.Info("Created new cluster")
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 }
 
 // handleDeletion 处理 EtcdCluster 的删除
@@ -265,6 +295,54 @@ func (r *EtcdClusterReconciler) validateClusterSpec(spec etcdv1alpha1.ClusterSpe
 		return fmt.Errorf("cluster size must not exceed 7")
 	}
 	return nil
+}
+
+// calculateDesiredStatus 计算期望状态
+func (r *EtcdClusterReconciler) calculateDesiredStatus(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster, pods []*corev1.Pod) etcdv1alpha1.ClusterStatus {
+	status := cluster.Status.DeepCopy()
+	
+	var ready []string
+	var unready []string
+	
+	for _, pod := range pods {
+		if pod.DeletionTimestamp == nil && metav1.IsControlledBy(pod, cluster) {
+			if k8s.IsPodReady(pod) {
+				ready = append(ready, pod.Name)
+			} else {
+				unready = append(unready, pod.Name)
+			}
+		}
+	}
+	
+	status.Members.Ready = ready
+	status.Members.Unready = unready
+	status.Size = len(ready) + len(unready)
+	status.Phase = etcdv1alpha1.ClusterPhaseRunning
+	
+	// 设置条件
+	if len(unready) == 0 && len(ready) > 0 {
+		status.SetReadyCondition()
+	}
+	
+	return *status
+}
+
+// getPodsForCluster 获取集群的Pod
+func (r *EtcdClusterReconciler) getPodsForCluster(ctx context.Context, cluster *etcdv1alpha1.EtcdCluster) ([]*corev1.Pod, error) {
+	podList := &corev1.PodList{}
+	labelSelector := labels.SelectorFromSet(k8s.LabelsForCluster(cluster.Name))
+	
+	if err := r.List(ctx, podList, client.MatchingLabelsSelector{Selector: labelSelector}); err != nil {
+		return nil, err
+	}
+	
+	var pods []*corev1.Pod
+	for i := range podList.Items {
+		pod := &podList.Items[i]
+		pods = append(pods, pod)
+	}
+	
+	return pods, nil
 }
 
 // SetupWithManager 设置控制器与管理器
