@@ -439,4 +439,5 @@ func (c *Cluster) updateMemberStatus(running []*corev1.Pod) {
 
 	c.status.Members.Ready = ready
 	c.status.Members.Unready = unready
+	c.status.Size = len(ready) + len(unready) // 添加Size状态更新
 }
