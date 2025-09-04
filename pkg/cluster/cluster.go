@@ -169,22 +169,28 @@ func (c *Cluster) bootstrap() error {
 
 // startSeedMember 启动种子成员
 func (c *Cluster) startSeedMember() error {
+	c.logger.Info("starting seed member creation")
 	m := c.newMember()
 	ms := etcd.NewMemberSet(m)
 	c.members = ms
 
 	// 创建服务
+	c.logger.Info("setting up services")
 	if err := c.setupServices(); err != nil {
+		c.logger.Error(err, "failed to setup services")
 		return fmt.Errorf("failed to setup services: %v", err)
 	}
+	c.logger.Info("services setup completed")
 
 	// 创建种子Pod
+	c.logger.Info("creating seed pod")
 	pod := k8s.NewEtcdPod(m, ms.PeerURLPairs(), c.cluster.Name, "new", "", c.cluster, c.cluster.AsOwner())
 	k8s.AddEtcdVolumeToPod(pod, nil) // 暂时不使用PVC
 
 	ctx := context.TODO()
 	_, err := c.config.KubeCli.CoreV1().Pods(c.cluster.Namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
+		c.logger.Error(err, "failed to create seed pod")
 		return fmt.Errorf("failed to create seed pod: %v", err)
 	}
 
@@ -218,12 +224,23 @@ func (c *Cluster) send(event *clusterEvent) {
 func (c *Cluster) setupServices() error {
 	ctx := context.TODO()
 
+	c.logger.Info("creating client service", "name", c.cluster.Name, "namespace", c.cluster.Namespace)
 	err := k8s.CreateClientService(ctx, c.config.KubeCli, c.cluster.Name, c.cluster.Namespace, c.cluster.AsOwner())
 	if err != nil {
+		c.logger.Error(err, "failed to create client service")
 		return err
 	}
+	c.logger.Info("client service created successfully")
 
-	return k8s.CreatePeerService(ctx, c.config.KubeCli, c.cluster.Name, c.cluster.Namespace, c.cluster.AsOwner())
+	c.logger.Info("creating peer service", "name", c.cluster.Name, "namespace", c.cluster.Namespace)
+	err = k8s.CreatePeerService(ctx, c.config.KubeCli, c.cluster.Name, c.cluster.Namespace, c.cluster.AsOwner())
+	if err != nil {
+		c.logger.Error(err, "failed to create peer service")
+		return err
+	}
+	c.logger.Info("peer service created successfully")
+
+	return nil
 }
 
 // newMember 创建新成员
