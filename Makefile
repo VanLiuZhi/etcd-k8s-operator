@@ -120,6 +120,10 @@ build: manifests generate fmt vet ## 构建管理器二进制文件
 run: manifests generate fmt vet ## 在本地运行控制器
 	go run ./cmd/main.go
 
+.PHONY: run-local
+run-local: manifests generate fmt vet ## 在本地运行控制器（无需Docker）
+	go run ./cmd/main.go
+
 .PHONY: docker-build
 docker-build: ## 构建Docker镜像
 	$(CONTAINER_TOOL) build -t ${IMG} .
