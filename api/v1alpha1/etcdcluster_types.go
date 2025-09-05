@@ -220,7 +220,7 @@ type ClusterSpec struct {
 	// 仅支持 etcd 发布的版本：https://github.com/coreos/etcd/releases
 	//
 	// 如果未设置版本，默认为 "3.5.21"
-	// +kubebuilder:validation:Pattern=^[0-9]+\.[0-9]+\.[0-9]+$
+	// +kubebuilder:validation:Pattern=^v?[0-9]+\.[0-9]+\.[0-9]+$
 	// +kubebuilder:default="3.5.21"
 	// +optional
 	Version string `json:"version,omitempty"`

@@ -1549,7 +1549,7 @@ spec:
 
 
                   如果未设置版本，默认为 "3.5.21"
-                pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
+                pattern: ^v?[0-9]+\.[0-9]+\.[0-9]+$
                 type: string
             required:
             - size

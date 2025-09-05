@@ -373,8 +373,20 @@ func (c *Cluster) run() {
 			}
 
 			if len(running) == 0 {
-				c.logger.Info("all etcd pods are dead")
-				break
+				c.logger.Info("all etcd pods are dead, triggering disaster recovery")
+				// 重置集群状态并触发重建
+				c.status.SetPhase(etcdv1alpha1.ClusterPhaseNone)
+				c.status.Size = 0
+				c.status.Members.Ready = []string{}
+				c.status.Members.Unready = []string{}
+				c.members = etcd.NewMemberSet()
+
+				// 触发重建
+				if err := c.create(); err != nil {
+					c.logger.Error(err, "failed to recreate cluster after pods died")
+					return
+				}
+				return // 重建后退出当前循环
 			}
 
 			if c.members == nil {

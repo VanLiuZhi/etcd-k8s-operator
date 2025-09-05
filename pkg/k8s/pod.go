@@ -147,7 +147,7 @@ func etcdContainer(cmd []string, repo, version string) corev1.Container {
 
 // ImageName 构建镜像名称
 func ImageName(repo, version string) string {
-	// 确保版本号前有v前缀
+	// 确保版本号前有v前缀（但不要重复添加）
 	if version != "" && !strings.HasPrefix(version, "v") {
 		version = "v" + version
 	}
