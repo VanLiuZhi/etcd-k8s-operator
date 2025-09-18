@@ -13,10 +13,10 @@ spec:
   size: 3
 
   # Version is the expected version of the etcd cluster.
-  # The version must follow the [semver]( http://semver.org) format, for example "3.5.21".
+  # The version must follow the [semver]( http://semver.org) format, for example "v3.5.21".
   # Only etcd released versions are supported: https://github.com/coreos/etcd/releases
-  # If version is not set, default is "3.5.21".
-  version: "3.5.21"
+  # If version is not set, default is "v3.5.21".
+  version: "v3.5.21"
 
   # Repository is the name of the repository that hosts
   # etcd container images. It should be direct clone of the repository in official

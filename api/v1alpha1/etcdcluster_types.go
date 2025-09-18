@@ -23,7 +23,7 @@ import (
 
 const (
 	defaultRepository  = "quay.io/coreos/etcd"
-	DefaultEtcdVersion = "3.5.21"
+	DefaultEtcdVersion = "v3.5.21"
 )
 
 // ClusterPhase 表示 EtcdCluster 的阶段
@@ -176,13 +176,13 @@ type ClusterSpec struct {
 	// Version 是 etcd 集群的期望版本
 	// etcd-operator 最终会使 etcd 集群版本等于期望版本
 	//
-	// 版本必须遵循 [semver](http://semver.org) 格式，例如 "3.5.21"
+	// 版本必须遵循 [semver](http://semver.org) 格式，例如 "v3.5.21"
 	// 仅支持 etcd 发布的版本：https://github.com/coreos/etcd/releases
 	//
-	// 如果未设置版本，默认为 "3.5.21"
+	// 如果未设置版本，默认为 "v3.5.21"
 
-	// +kubebuilder:validation:Pattern=^[0-9]+\.[0-9]+\.[0-9]+$
-	// +kubebuilder:default="3.5.21"
+	// +kubebuilder:validation:Pattern=^v[0-9]+\.[0-9]+\.[0-9]+$
+	// +kubebuilder:default="v3.5.21"
 	// +optional
 	Version string `json:"version,omitempty"`
 
@@ -329,9 +329,10 @@ func (e *EtcdCluster) SetDefaults() {
 		c.Version = DefaultEtcdVersion
 	}
 
-	// Remove 'v' prefix if present
-	if len(c.Version) > 0 && c.Version[0] == 'v' {
-		c.Version = c.Version[1:]
+	// Ensure 'v' prefix is present
+	// TODO 遗漏处理逻辑，不需要了
+	if len(c.Version) > 0 && c.Version[0] != 'v' {
+		c.Version = "v" + c.Version
 	}
 
 	// 添加默认的反亲和性，将 etcd Pod 分散到不同节点上

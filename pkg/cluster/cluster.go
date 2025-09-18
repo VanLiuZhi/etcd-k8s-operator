@@ -75,8 +75,15 @@ type Cluster struct {
 	// status是Cluster结构体实例化后的真实来源
 	status etcdv1alpha1.ClusterStatus
 
+	// 作用：传递集群事件（如集群更新）
+	// 缓冲：100个事件的缓冲区
+	// 使用：run() 方法中通过 select 监听事件并处理
 	eventCh chan *clusterEvent
-	stopCh  chan struct{}
+
+	// 类型：chan struct{}
+	// 作用：传递停止信号，用于优雅关闭
+	// 使用：Delete() 方法中关闭通道，run()方法监听关闭信号
+	stopCh chan struct{}
 
 	// members表示etcd集群中的成员
 	// 成员的名称是成员进程运行的pod的名称
@@ -160,7 +167,7 @@ func (c *Cluster) prepareSeedMember() error {
 		return err
 	}
 
-	// 更新当前cr实例内存状态中的集群大小（TODO，没有更新 cr）
+	// 更新当前cr实例内存状态中的集群大小（TODO，没有更新 cr，要确认是否有必要更新 cr）
 	c.status.Size = 1
 	return nil
 }
@@ -183,7 +190,7 @@ func (c *Cluster) startSeedMember() error {
 
 	// 创建种子Pod
 	pod := k8s.NewEtcdPod(m, ms.PeerURLPairs(), c.cluster.Name, "new", "", c.cluster, c.cluster.AsOwner())
-	k8s.AddEtcdVolumeToPod(pod, nil) // 暂时不使用PVC
+	k8s.AddEtcdVolumeToPod(pod, nil) // 暂时不使用PVC，使用常规的 emptyDir
 
 	ctx := context.TODO()
 	_, err := c.config.KubeCli.CoreV1().Pods(c.cluster.Namespace).Create(ctx, pod, metav1.CreateOptions{})
@@ -337,14 +344,17 @@ func (c *Cluster) run() {
 				c.logger.Info("cluster spec updated")
 			}
 		case <-time.After(reconcileInterval):
+			// 定期协调循环（每5秒）
 			start := time.Now()
 
+			// 1. 轮询Pod状态
 			running, pending, err := c.pollPods()
 			if err != nil {
 				c.logger.Error(err, "failed to poll pods")
 				continue
 			}
 
+			// 2. 处理pending状态的Pod
 			if len(pending) > 0 {
 				c.logger.Info("skip reconciliation: pods are pending",
 					"running", k8s.GetPodNames(running),
@@ -352,21 +362,25 @@ func (c *Cluster) run() {
 				continue
 			}
 
+			// 3. 如果没有运行中的Pod，记录日志
 			if len(running) == 0 {
 				c.logger.Info("all etcd pods are dead")
 				break
 			}
 
+			// 4. 更新成员信息
 			if c.members == nil {
 				c.members = podsToMemberSet(running, c.isSecureClient())
 			}
 
+			// 5. 执行协调逻辑
 			rerr = c.reconcile(running)
 			if rerr != nil {
 				c.logger.Error(rerr, "failed to reconcile")
 				break
 			}
 
+			// 6. 更新成员状态和CR状态
 			c.updateMemberStatus(running)
 			if err := c.updateCRStatus(); err != nil {
 				c.logger.Error(err, "periodic update CR status failed")

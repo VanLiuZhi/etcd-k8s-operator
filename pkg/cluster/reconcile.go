@@ -65,15 +65,19 @@ func (c *Cluster) reconcileMembers(running etcd.MemberSet) error {
 	c.logger.Info("running members", "members", running.String())
 	c.logger.Info("cluster membership", "members", c.members.String())
 
+	// 计算 running 有，而 c.members 没有的成员
 	unknownMembers := running.Diff(c.members)
 	if unknownMembers.Size() > 0 {
 		c.logger.Info("removing unexpected pods", "members", unknownMembers.String())
 		for _, m := range unknownMembers {
+			// TODO 有没有可能会出现 etcd 也记录了成员信息，那这里只删除pod，会不会有问题？
 			if err := c.removePod(m.Name); err != nil {
 				return err
 			}
 		}
 	}
+
+	// 实际有效的运行中成员（已过滤未知Pod）
 	L := running.Diff(unknownMembers)
 
 	if L.Size() == c.members.Size() {
@@ -116,6 +120,7 @@ func (c *Cluster) addOneMember() error {
 	newMember := c.newMember()
 
 	// 向etcd集群添加成员
+	// etcd 集群变化：新成员被记录为未启动的 learner/proxy（取决于etcd版本）
 	resp, err := etcd.AddMember(c.members.ClientURLs(), c.tlsConfig, []string{newMember.PeerURL()})
 	if err != nil {
 		return fmt.Errorf("failed to add new member (%s): %v", newMember.Name, err)
@@ -125,8 +130,8 @@ func (c *Cluster) addOneMember() error {
 
 	// 创建Kubernetes Pod
 	if err := c.createPod(c.members, newMember, "existing"); err != nil {
-		// 需要从etcd集群中移除已添加的成员
-		etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, newMember.ID)
+		// Pod创建失败，要回滚前面添加的成员
+		_ = etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, newMember.ID)
 		c.members.Remove(newMember.Name)
 		return fmt.Errorf("failed to create member's pod (%s): %v", newMember.Name, err)
 	}
@@ -238,4 +243,3 @@ func podsToMemberSet(pods []*corev1.Pod, secureClient bool) etcd.MemberSet {
 	}
 	return members
 }
-
