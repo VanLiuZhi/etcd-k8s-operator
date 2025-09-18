@@ -97,9 +97,11 @@ func New(config Config, cl *etcdv1alpha1.EtcdCluster, logger logr.Logger) *Clust
 	}
 
 	// 启动集群管理协程
+	// 先创建集群，完成初始化; 然后启动run监听事件，开始调谐
 	go func() {
 		if err := c.setup(); err != nil {
 			c.logger.Error(err, "cluster failed to setup")
+			// 集群设置异常了，把阶段直接转换到Failed
 			if c.status.Phase != etcdv1alpha1.ClusterPhaseFailed {
 				c.status.SetReason(err.Error())
 				c.status.SetPhase(etcdv1alpha1.ClusterPhaseFailed)
@@ -137,6 +139,7 @@ func (c *Cluster) setup() error {
 
 // create 创建集群
 func (c *Cluster) create() error {
+	// 更新状态为 Creating
 	c.status.SetPhase(etcdv1alpha1.ClusterPhaseCreating)
 
 	if err := c.updateCRStatus(); err != nil {
@@ -147,8 +150,9 @@ func (c *Cluster) create() error {
 	return c.prepareSeedMember()
 }
 
-// prepareSeedMember 准备种子成员
+// prepareSeedMember 准备种子成员，后续成员加到这个种子成员中组建成集群
 func (c *Cluster) prepareSeedMember() error {
+	// 明确当前集群从 0 个节点扩容到目标规格（如 3 节点）的状态，为后续协调循环提供依据
 	c.status.SetScalingUpCondition(0, c.cluster.Spec.Size)
 
 	err := c.bootstrap()
@@ -156,6 +160,7 @@ func (c *Cluster) prepareSeedMember() error {
 		return err
 	}
 
+	// 更新当前cr实例内存状态中的集群大小（TODO，没有更新 cr）
 	c.status.Size = 1
 	return nil
 }
@@ -283,8 +288,12 @@ func (c *Cluster) recoverFromRunning() error {
 	return nil
 }
 
-// updateCRStatus 更新CR状态
+// updateCRStatus 更新CR状态，TODO 这个方法的调用方那边可能有问题，目前存在实际 pod 数量和 cr 的值不一致的情况
 func (c *Cluster) updateCRStatus() error {
+
+	// c.cluster.Status 是cr实际存储在k8s etcd中的状态
+	// c.status 是调谐过程中临时状态
+
 	if reflect.DeepEqual(c.cluster.Status, c.status) {
 		return nil
 	}
