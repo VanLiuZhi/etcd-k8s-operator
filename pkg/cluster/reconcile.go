@@ -80,6 +80,7 @@ func (c *Cluster) reconcileMembers(running etcd.MemberSet) error {
 	// 实际有效的运行中成员（已过滤未知Pod）
 	L := running.Diff(unknownMembers)
 
+	// TODO 没有理解为什么要在这个条件下触发 resize
 	if L.Size() == c.members.Size() {
 		return c.resize()
 	}

@@ -104,7 +104,7 @@ func New(config Config, cl *etcdv1alpha1.EtcdCluster, logger logr.Logger) *Clust
 	}
 
 	// 启动集群管理协程
-	// 先创建集群，完成初始化; 然后启动run监听事件，开始调谐
+	// 先创建集群，完成初始化; 然后启动run开始调谐
 	go func() {
 		if err := c.setup(); err != nil {
 			c.logger.Error(err, "cluster failed to setup")
