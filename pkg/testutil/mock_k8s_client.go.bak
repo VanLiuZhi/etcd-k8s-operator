@@ -1,0 +1,631 @@
+/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package testutil
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
+	corev1 "k8s.io/api/core/v1"
+	policyv1beta1 "k8s.io/api/policy/v1beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/version"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/discovery"
+	"k8s.io/apimachinery/pkg/runtime"
+	openapi_v2 "k8s.io/kube-openapi/pkg/common"
+	appsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
+	corev1typed "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
+	corev1apply "k8s.io/client-go/applyconfigurations/core/v1"
+	)
+
+// MockK8sClient 模拟K8s客户端，用于测试调谐过程
+type MockK8sClient struct {
+	mu sync.RWMutex
+
+	// 存储K8s资源
+	Pods     map[string]*corev1.Pod
+	Services map[string]*corev1.Service
+	PVCs     map[string]*corev1.PersistentVolumeClaim
+
+	// 模拟配置
+	StateChangeDelay  time.Duration
+	CreatePodFail     bool
+	DeletePodFail     bool
+	CreateServiceFail bool
+	CreatePVCFail     bool
+
+	// 事件记录
+	EventRecords []EventRecord
+}
+
+// EventRecord 记录K8s事件
+type EventRecord struct {
+	EventType string
+	Reason    string
+	Message   string
+	Timestamp time.Time
+}
+
+// NewMockK8sClient 创建新的Mock K8s客户端
+func NewMockK8sClient() *MockK8sClient {
+	return &MockK8sClient{
+		Pods:             make(map[string]*corev1.Pod),
+		Services:         make(map[string]*corev1.Service),
+		PVCs:             make(map[string]*corev1.PersistentVolumeClaim),
+		StateChangeDelay: 10 * time.Millisecond, // 减少默认延迟提高测试速度
+		EventRecords:     make([]EventRecord, 0),
+	}
+}
+
+// 实现kubernetes.Interface接口的核心方法
+
+func (m *MockK8sClient) CoreV1() corev1typed.CoreV1Interface {
+	return &mockCoreV1Client{mock: m}
+}
+
+func (m *MockK8sClient) Discovery() discovery.DiscoveryInterface {
+	return &mockDiscoveryClient{}
+}
+
+func (m *MockK8sClient) AppsV1() appsv1.AppsV1Interface {
+	return &mockAppsV1Client{mock: m}
+}
+
+// 模拟Pod操作
+func (m *MockK8sClient) CreatePod(ctx context.Context, namespace string, pod *corev1.Pod) error {
+	if m.CreatePodFail {
+		return fmt.Errorf("mock pod creation failed")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("%s/%s", namespace, pod.Name)
+
+	// 模拟状态转换延迟
+	if m.StateChangeDelay > 0 {
+		time.Sleep(m.StateChangeDelay)
+	}
+
+	// 创建Pod副本
+	podCopy := pod.DeepCopy()
+	podCopy.Status.Phase = corev1.PodPending
+	podCopy.Status.PodIP = "10.244.0.100" // 模拟IP
+
+	m.Pods[key] = podCopy
+
+	// 模拟Pod状态变化（从Pending到Running）
+	go m.simulatePodStateChange(key)
+
+	return nil
+}
+
+func (m *MockK8sClient) DeletePod(ctx context.Context, namespace, name string) error {
+	if m.DeletePodFail {
+		return fmt.Errorf("mock pod deletion failed")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("%s/%s", namespace, name)
+	if _, exists := m.Pods[key]; !exists {
+		return fmt.Errorf("pod not found")
+	}
+
+	delete(m.Pods, key)
+	return nil
+}
+
+func (m *MockK8sClient) GetPod(ctx context.Context, namespace, name string) (*corev1.Pod, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	key := fmt.Sprintf("%s/%s", namespace, name)
+	pod, exists := m.Pods[key]
+	if !exists {
+		return nil, fmt.Errorf("pod not found")
+	}
+	return pod.DeepCopy(), nil
+}
+
+func (m *MockK8sClient) ListPods(ctx context.Context, namespace string, opts metav1.ListOptions) (*corev1.PodList, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var pods []corev1.Pod
+	for key, pod := range m.Pods {
+		// 简单的namespace过滤
+		if namespace == "" || key[:len(namespace)] == namespace {
+			pods = append(pods, *pod.DeepCopy())
+		}
+	}
+
+	return &corev1.PodList{
+		Items: pods,
+	}, nil
+}
+
+// 模拟Service操作
+func (m *MockK8sClient) CreateService(ctx context.Context, namespace string, svc *corev1.Service) error {
+	if m.CreateServiceFail {
+		return fmt.Errorf("mock service creation failed")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("%s/%s", namespace, svc.Name)
+	m.Services[key] = svc.DeepCopy()
+	return nil
+}
+
+func (m *MockK8sClient) GetService(ctx context.Context, namespace, name string) (*corev1.Service, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	key := fmt.Sprintf("%s/%s", namespace, name)
+	svc, exists := m.Services[key]
+	if !exists {
+		return nil, fmt.Errorf("service not found")
+	}
+	return svc.DeepCopy(), nil
+}
+
+// 模拟PVC操作
+func (m *MockK8sClient) CreatePVC(ctx context.Context, pvc *corev1.PersistentVolumeClaim) error {
+	if m.CreatePVCFail {
+		return fmt.Errorf("mock pvc creation failed")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("%s/%s", pvc.Namespace, pvc.Name)
+	m.PVCs[key] = pvc.DeepCopy()
+	return nil
+}
+
+func (m *MockK8sClient) DeletePVC(ctx context.Context, namespace, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("%s/%s", namespace, name)
+	delete(m.PVCs, key)
+	return nil
+}
+
+// simulatePodStateChange 模拟Pod状态变化
+func (m *MockK8sClient) simulatePodStateChange(podKey string) {
+	time.Sleep(m.StateChangeDelay)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if pod, exists := m.Pods[podKey]; exists {
+		pod.Status.Phase = corev1.PodRunning
+		pod.Status.PodIPs = []corev1.PodIP{
+			{IP: pod.Status.PodIP},
+		}
+		pod.Status.Conditions = []corev1.PodCondition{
+			{
+				Type:   corev1.PodReady,
+				Status: corev1.ConditionTrue,
+			},
+		}
+	}
+}
+
+// RecordEvent 记录事件
+func (m *MockK8sClient) RecordEvent(eventType, reason, message string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.EventRecords = append(m.EventRecords, EventRecord{
+		EventType: eventType,
+		Reason:    reason,
+		Message:   message,
+		Timestamp: time.Now(),
+	})
+}
+
+// GetEventRecords 获取事件记录
+func (m *MockK8sClient) GetEventRecords() []EventRecord {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	records := make([]EventRecord, len(m.EventRecords))
+	copy(records, m.EventRecords)
+	return records
+}
+
+// ClearEventRecords 清除事件记录
+func (m *MockK8sClient) ClearEventRecords() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.EventRecords = make([]EventRecord, 0)
+}
+
+// GetPodState 获取Pod状态统计
+func (m *MockK8sClient) GetPodState() (running, pending int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, pod := range m.Pods {
+		switch pod.Status.Phase {
+		case corev1.PodRunning:
+			running++
+		case corev1.PodPending:
+			pending++
+		}
+	}
+	return
+}
+
+// SetPodState 手动设置Pod状态（用于测试场景）
+func (m *MockK8sClient) SetPodState(namespace, name string, phase corev1.PodPhase) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := fmt.Sprintf("%s/%s", namespace, name)
+	if pod, exists := m.Pods[key]; exists {
+		pod.Status.Phase = phase
+		if phase == corev1.PodRunning {
+			pod.Status.PodIP = "10.244.0.100"
+			pod.Status.Conditions = []corev1.PodCondition{
+				{
+					Type:   corev1.PodReady,
+					Status: corev1.ConditionTrue,
+				},
+			}
+		}
+	}
+}
+
+// 需要实现的接口结构体（简化版本）
+type mockCoreV1Client struct {
+	mock *MockK8sClient
+}
+
+type mockDiscoveryClient struct{}
+
+type mockAppsV1Client struct {
+	mock *MockK8sClient
+}
+
+// 实现缺失的接口方法
+func (m *mockCoreV1Client) Pods(namespace string) corev1typed.PodInterface {
+	return &mockPodInterface{mock: m.mock, namespace: namespace}
+}
+
+func (m *mockCoreV1Client) Services(namespace string) corev1typed.ServiceInterface {
+	return &mockServiceInterface{mock: m.mock, namespace: namespace}
+}
+
+func (m *mockCoreV1Client) PersistentVolumeClaims(namespace string) corev1typed.PersistentVolumeClaimInterface {
+	return &mockPVCInterface{mock: m.mock, namespace: namespace}
+}
+
+func (m *mockCoreV1Client) ComponentStatuses() corev1typed.ComponentStatusInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) ConfigMaps(namespace string) corev1typed.ConfigMapInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) Endpoints(namespace string) corev1typed.EndpointsInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) Events(namespace string) corev1typed.EventInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) LimitRanges(namespace string) corev1typed.LimitRangeInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) Namespaces() corev1typed.NamespaceInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) Nodes() corev1typed.NodeInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) PersistentVolumes() corev1typed.PersistentVolumeInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) PodTemplates(namespace string) corev1typed.PodTemplateInterface {
+	return nil
+}
+
+func (m *mockCoreV1Client) RESTClient() rest.Interface {
+	return nil
+}
+
+func (m *mockCoreV1Client) ReplicationControllers(namespace string) corev1typed.ReplicationControllerInterface {
+	return nil
+}
+
+// Pod接口实现
+type mockPodInterface struct {
+	mock      *MockK8sClient
+	namespace string
+}
+
+func (m *mockPodInterface) Create(ctx context.Context, pod *corev1.Pod, opts metav1.CreateOptions) (*corev1.Pod, error) {
+	err := m.mock.CreatePod(ctx, m.namespace, pod)
+	if err != nil {
+		return nil, err
+	}
+	return m.mock.GetPod(ctx, m.namespace, pod.Name)
+}
+
+func (m *mockPodInterface) Delete(ctx context.Context, name string, opts metav1.DeleteOptions) error {
+	return m.mock.DeletePod(ctx, m.namespace, name)
+}
+
+func (m *mockPodInterface) Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Pod, error) {
+	return m.mock.GetPod(ctx, m.namespace, name)
+}
+
+func (m *mockPodInterface) List(ctx context.Context, opts metav1.ListOptions) (*corev1.PodList, error) {
+	return m.mock.ListPods(ctx, m.namespace, opts)
+}
+
+func (m *mockPodInterface) Apply(ctx context.Context, applyConfiguration *corev1apply.PodApplyConfiguration, opts metav1.ApplyOptions) (*corev1.Pod, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPodInterface) ApplyStatus(ctx context.Context, applyConfiguration *corev1apply.PodApplyConfiguration, opts metav1.ApplyOptions) (*corev1.Pod, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPodInterface) Bind(ctx context.Context, binding *corev1.Binding, opts metav1.CreateOptions) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (m *mockPodInterface) Evict(ctx context.Context, eviction *policyv1beta1.Eviction) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (m *mockPodInterface) EvictV1(ctx context.Context, eviction *policyv1beta1.Eviction) error {
+	return fmt.Errorf("not implemented")
+}
+
+// Service接口实现
+type mockServiceInterface struct {
+	mock      *MockK8sClient
+	namespace string
+}
+
+func (m *mockServiceInterface) Create(ctx context.Context, svc *corev1.Service, opts metav1.CreateOptions) (*corev1.Service, error) {
+	err := m.mock.CreateService(ctx, m.namespace, svc)
+	if err != nil {
+		return nil, err
+	}
+	return m.mock.GetService(ctx, m.namespace, svc.Name)
+}
+
+func (m *mockServiceInterface) Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Service, error) {
+	return m.mock.GetService(ctx, m.namespace, name)
+}
+
+func (m *mockServiceInterface) Apply(ctx context.Context, applyConfiguration *corev1apply.ServiceApplyConfiguration, opts metav1.ApplyOptions) (*corev1.Service, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockServiceInterface) ApplyStatus(ctx context.Context, applyConfiguration *corev1apply.ServiceApplyConfiguration, opts metav1.ApplyOptions) (*corev1.Service, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockServiceInterface) ProxyGet(scheme string, name string, port string, path string, params map[string]string) rest.ResponseWrapper {
+	return nil
+}
+
+// PVC接口实现
+type mockPVCInterface struct {
+	mock      *MockK8sClient
+	namespace string
+}
+
+func (m *mockPVCInterface) Create(ctx context.Context, pvc *corev1.PersistentVolumeClaim, opts metav1.CreateOptions) (*corev1.PersistentVolumeClaim, error) {
+	err := m.mock.CreatePVC(ctx, pvc)
+	if err != nil {
+		return nil, err
+	}
+	return pvc, nil
+}
+
+func (m *mockPVCInterface) Delete(ctx context.Context, name string, opts metav1.DeleteOptions) error {
+	return m.mock.DeletePVC(ctx, m.namespace, name)
+}
+
+func (m *mockPVCInterface) Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.PersistentVolumeClaim, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPVCInterface) Apply(ctx context.Context, applyConfiguration *corev1apply.PersistentVolumeClaimApplyConfiguration, opts metav1.ApplyOptions) (*corev1.PersistentVolumeClaim, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPVCInterface) ApplyStatus(ctx context.Context, applyConfiguration *corev1apply.PersistentVolumeClaimApplyConfiguration, opts metav1.ApplyOptions) (*corev1.PersistentVolumeClaim, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPVCInterface) DeleteCollection(ctx context.Context, opts metav1.DeleteOptions, listOpts metav1.ListOptions) error {
+	return fmt.Errorf("not implemented")
+}
+
+// 其他必需的接口方法（简化实现）
+func (m *mockPodInterface) Update(ctx context.Context, pod *corev1.Pod, opts metav1.UpdateOptions) (*corev1.Pod, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPodInterface) UpdateStatus(ctx context.Context, pod *corev1.Pod, opts metav1.UpdateOptions) (*corev1.Pod, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPodInterface) DeleteCollection(ctx context.Context, opts metav1.DeleteOptions, listOpts metav1.ListOptions) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (m *mockPodInterface) Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPodInterface) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *corev1.Pod, err error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+
+// Service接口的其他方法
+func (m *mockServiceInterface) Delete(ctx context.Context, name string, opts metav1.DeleteOptions) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (m *mockServiceInterface) Update(ctx context.Context, svc *corev1.Service, opts metav1.UpdateOptions) (*corev1.Service, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockServiceInterface) UpdateStatus(ctx context.Context, svc *corev1.Service, opts metav1.UpdateOptions) (*corev1.Service, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockServiceInterface) List(ctx context.Context, opts metav1.ListOptions) (*corev1.ServiceList, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockServiceInterface) Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockServiceInterface) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *corev1.Service, err error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+
+func (m *mockServiceInterface) GetScale(ctx context.Context, serviceName string, opts metav1.GetOptions) (*autoscalingv1.Scale, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockServiceInterface) UpdateScale(ctx context.Context, serviceName string, scale *autoscalingv1.Scale, opts metav1.UpdateOptions) (*autoscalingv1.Scale, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+
+func (m *mockPVCInterface) List(ctx context.Context, opts metav1.ListOptions) (*corev1.PersistentVolumeClaimList, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPVCInterface) Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPVCInterface) Update(ctx context.Context, pvc *corev1.PersistentVolumeClaim, opts metav1.UpdateOptions) (*corev1.PersistentVolumeClaim, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPVCInterface) UpdateStatus(ctx context.Context, pvc *corev1.PersistentVolumeClaim, opts metav1.UpdateOptions) (*corev1.PersistentVolumeClaim, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+
+func (m *mockPVCInterface) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *corev1.PersistentVolumeClaim, err error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+
+func (m *mockPVCInterface) GetScale(ctx context.Context, pvcName string, opts metav1.GetOptions) (*autoscalingv1.Scale, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockPVCInterface) UpdateScale(ctx context.Context, pvcName string, scale *autoscalingv1.Scale, opts metav1.UpdateOptions) (*autoscalingv1.Scale, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+// 实现Discovery接口方法
+func (m *mockDiscoveryClient) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDiscoveryClient) ServerResources() ([]*metav1.APIResourceList, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDiscoveryClient) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDiscoveryClient) ServerPreferredNamespacedResources() ([]*metav1.APIResourceList, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDiscoveryClient) ServerGroups() (*metav1.APIGroupList, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDiscoveryClient) ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error) {
+	return nil, nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDiscoveryClient) ServerVersion() (*version.Info, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDiscoveryClient) OpenAPISchema() (*openapi_v2.Document, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockDiscoveryClient) RESTClient() rest.Interface {
+	return nil
+}
+
+// 实现AppsV1接口
+func (m *mockAppsV1Client) Deployments(namespace string) appsv1.DeploymentInterface {
+	return nil
+}
+
+func (m *mockAppsV1Client) StatefulSets(namespace string) appsv1.StatefulSetInterface {
+	return nil
+}
+
+func (m *mockAppsV1Client) DaemonSets(namespace string) appsv1.DaemonSetInterface {
+	return nil
+}
+
+func (m *mockAppsV1Client) ReplicaSets(namespace string) appsv1.ReplicaSetInterface {
+	return nil
+}
+
+func (m *mockAppsV1Client) ControllerRevisions(namespace string) appsv1.ControllerRevisionInterface {
+	return nil
+}
+
+func (m *mockAppsV1Client) RESTClient() rest.Interface {
+	return nil
+}

@@ -1,0 +1,449 @@
+/*
+Copyright 2025 ETCD Operator Team.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package cluster
+
+import (
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/etcd-lz/etcd-k8s-operator/pkg/testutil"
+)
+
+func TestClusterBasicReconciliation(t *testing.T) {
+	// 创建测试配置
+	config := &testutil.TestConfig{
+		ClusterName:      "test-basic-reconcile",
+		Namespace:        "default",
+		InitialSize:      3,
+		ReconcileTimeout: 30 * time.Second,
+		EnableDebugLog:   true,
+	}
+
+	// 创建测试集群
+	testCluster := testutil.NewTestCluster(t, config)
+	testCluster.Start()
+	defer testCluster.Stop()
+
+	// 运行基础调谐测试
+	result := testCluster.RunTest(testutil.TestClusterBasicReconciliation)
+
+	// 验证结果
+	if !result.Success {
+		t.Fatalf("Test failed: %v", result.Error)
+	}
+
+	// 验证最终状态
+	expectedState := testutil.ClusterState{
+		PodCount:    3,
+		RunningPods: 3,
+		PendingPods: 0,
+		MemberCount: 3,
+		HasQuorum:   true,
+	}
+
+	if err := testCluster.AssertClusterState(expectedState); err != nil {
+		t.Fatalf("Cluster state assertion failed: %v", err)
+	}
+
+	// 打印调试信息
+	testCluster.PrintClusterState()
+
+	t.Logf("Test completed in %v", result.Duration)
+	t.Logf("Etcd operations - Add: %d, Remove: %d, List: %d",
+		result.EtcdCalls.AddMembers, result.EtcdCalls.RemoveMembers, result.EtcdCalls.ListMembers)
+}
+
+func TestClusterFailureRecovery(t *testing.T) {
+	// 创建测试配置
+	config := &testutil.TestConfig{
+		ClusterName:      "test-failure-recovery",
+		Namespace:        "default",
+		InitialSize:      3,
+		ReconcileTimeout: 60 * time.Second,
+		EnableDebugLog:   true,
+	}
+
+	// 创建测试集群
+	testCluster := testutil.NewTestCluster(t, config)
+	testCluster.Start()
+	defer testCluster.Stop()
+
+	// 自定义测试函数
+	result := testCluster.RunTest(func(tc *testutil.TestCluster) error {
+		tc.t.Log("Starting failure recovery test")
+
+		// 1. 等待初始集群就绪
+		err := tc.WaitForClusterReady(30 * time.Second)
+		if err != nil {
+			return fmt.Errorf("initial cluster not ready: %v", err)
+		}
+
+		// 2. 模拟一个Pod故障
+		tc.t.Log("Simulating pod failure")
+		// 假设第一个Pod名称
+		failedPodName := "test-failure-recovery-etcd-0"
+		tc.SimulatePodFailure(failedPodName)
+
+		// 3. 等待系统检测到故障
+		time.Sleep(2 * time.Second) // 等待调谐循环
+
+		// 4. 模拟Pod恢复
+		tc.t.Log("Simulating pod recovery")
+		tc.SimulatePodRecovery(failedPodName)
+
+		// 5. 等待集群恢复
+		err = tc.WaitForClusterReady(30 * time.Second)
+		if err != nil {
+			return fmt.Errorf("cluster recovery failed: %v", err)
+		}
+
+		tc.t.Log("Failure recovery test completed successfully")
+		return nil
+	})
+
+	if !result.Success {
+		t.Fatalf("Test failed: %v", result.Error)
+	}
+
+	// 验证最终状态
+	expectedState := testutil.ClusterState{
+		PodCount:    3,
+		RunningPods: 3,
+		PendingPods: 0,
+		MemberCount: 3,
+		HasQuorum:   true,
+	}
+
+	if err := testCluster.AssertClusterState(expectedState); err != nil {
+		t.Fatalf("Cluster state assertion failed: %v", err)
+	}
+
+	testCluster.PrintClusterState()
+	t.Logf("Test completed in %v", result.Duration)
+}
+
+func TestClusterQuorumLoss(t *testing.T) {
+	// 创建测试配置
+	config := &testutil.TestConfig{
+		ClusterName:      "test-quorum-loss",
+		Namespace:        "default",
+		InitialSize:      5, // 使用5个节点更容易测试法定人数丢失
+		ReconcileTimeout: 60 * time.Second,
+		EnableDebugLog:   true,
+	}
+
+	// 创建测试集群
+	testCluster := testutil.NewTestCluster(t, config)
+	testCluster.Start()
+	defer testCluster.Stop()
+
+	// 自定义测试函数
+	result := testCluster.RunTest(func(tc *testutil.TestCluster) error {
+		tc.t.Log("Starting quorum loss test")
+
+		// 1. 等待初始集群就绪
+		err := tc.WaitForClusterReady(30 * time.Second)
+		if err != nil {
+			return fmt.Errorf("initial cluster not ready: %v", err)
+		}
+
+		// 2. 模拟多个节点故障导致法定人数丢失
+		tc.t.Log("Simulating quorum loss")
+		tc.MockEtcd.SetQuorumLost(true)
+
+		// 3. 尝试添加成员应该失败
+		tc.t.Log("Attempting to add member during quorum loss")
+		_, err = tc.MockEtcd.AddMember([]string{"http://localhost:2380"}, nil, []string{"http://new-member:2380"})
+		if err == nil {
+			return fmt.Errorf("expected add member to fail during quorum loss")
+		}
+
+		// 4. 恢复法定人数
+		tc.t.Log("Recovering from quorum loss")
+		tc.MockEtcd.SetQuorumLost(false)
+
+		// 5. 等待集群恢复
+		err = tc.WaitForClusterReady(30 * time.Second)
+		if err != nil {
+			return fmt.Errorf("cluster recovery failed: %v", err)
+		}
+
+		tc.t.Log("Quorum loss test completed successfully")
+		return nil
+	})
+
+	if !result.Success {
+		t.Fatalf("Test failed: %v", result.Error)
+	}
+
+	testCluster.PrintClusterState()
+	t.Logf("Test completed in %v", result.Duration)
+}
+
+func TestClusterScaling(t *testing.T) {
+	// 创建测试配置
+	config := &testutil.TestConfig{
+		ClusterName:      "test-scaling",
+		Namespace:        "default",
+		InitialSize:      3,
+		ReconcileTimeout: 90 * time.Second,
+		EnableDebugLog:   true,
+	}
+
+	// 创建测试集群
+	testCluster := testutil.NewTestCluster(t, config)
+	testCluster.Start()
+	defer testCluster.Stop()
+
+	// 自定义测试函数
+	result := testCluster.RunTest(func(tc *testutil.TestCluster) error {
+		tc.t.Log("Starting cluster scaling test")
+
+		// 1. 等待初始集群就绪
+		err := tc.WaitForClusterReady(30 * time.Second)
+		if err != nil {
+			return fmt.Errorf("initial cluster not ready: %v", err)
+		}
+
+		// 2. 验证初始状态
+		state := tc.GetClusterState()
+		if state.MemberCount != 3 {
+			return fmt.Errorf("expected 3 members, got %d", state.MemberCount)
+		}
+
+		// 3. 模拟扩容 - 添加2个成员
+		tc.t.Log("Scaling up to 5 members")
+
+		// 添加第一个成员
+		_, err = tc.MockEtcd.AddMember([]string{"http://localhost:2380"}, nil, []string{"http://member4:2380"})
+		if err != nil {
+			return fmt.Errorf("failed to add first member: %v", err)
+		}
+
+		// 添加第二个成员
+		_, err = tc.MockEtcd.AddMember([]string{"http://localhost:2380"}, nil, []string{"http://member5:2380"})
+		if err != nil {
+			return fmt.Errorf("failed to add second member: %v", err)
+		}
+
+		// 4. 等待扩容完成
+		err = tc.WaitForMemberCount(5, 30*time.Second)
+		if err != nil {
+			return fmt.Errorf("scale up failed: %v", err)
+		}
+
+		// 5. 模拟缩容 - 移除2个成员
+		tc.t.Log("Scaling down to 3 members")
+
+		// 获取要移除的成员
+		members := tc.MockEtcd.GetAllMemberStates()
+		var toRemove []uint64
+		count := 0
+		for id := range members {
+			if count >= 2 {
+				break
+			}
+			toRemove = append(toRemove, id)
+			count++
+		}
+
+		for _, memberID := range toRemove {
+			err = tc.MockEtcd.RemoveMember([]string{"http://localhost:2380"}, nil, memberID)
+			if err != nil {
+				return fmt.Errorf("failed to remove member %d: %v", memberID, err)
+			}
+		}
+
+		// 6. 等待缩容完成
+		err = tc.WaitForMemberCount(3, 30*time.Second)
+		if err != nil {
+			return fmt.Errorf("scale down failed: %v", err)
+		}
+
+		tc.t.Log("Cluster scaling test completed successfully")
+		return nil
+	})
+
+	if !result.Success {
+		t.Fatalf("Test failed: %v", result.Error)
+	}
+
+	// 验证最终状态
+	expectedState := testutil.ClusterState{
+		PodCount:    3,
+		RunningPods: 3,
+		PendingPods: 0,
+		MemberCount: 3,
+		HasQuorum:   true,
+	}
+
+	if err := testCluster.AssertClusterState(expectedState); err != nil {
+		t.Fatalf("Cluster state assertion failed: %v", err)
+	}
+
+	testCluster.PrintClusterState()
+	t.Logf("Test completed in %v", result.Duration)
+}
+
+func TestClusterConcurrentOperations(t *testing.T) {
+	// 创建测试配置
+	config := &testutil.TestConfig{
+		ClusterName:      "test-concurrent",
+		Namespace:        "default",
+		InitialSize:      3,
+		ReconcileTimeout: 60 * time.Second,
+		EnableDebugLog:   true,
+	}
+
+	// 创建测试集群
+	testCluster := testutil.NewTestCluster(t, config)
+	testCluster.Start()
+	defer testCluster.Stop()
+
+	// 自定义测试函数
+	result := testCluster.RunTest(func(tc *testutil.TestCluster) error {
+		tc.t.Log("Starting concurrent operations test")
+
+		// 1. 等待初始集群就绪
+		err := tc.WaitForClusterReady(30 * time.Second)
+		if err != nil {
+			return fmt.Errorf("initial cluster not ready: %v", err)
+		}
+
+		// 2. 并发添加成员
+		tc.t.Log("Testing concurrent member additions")
+
+		addMemberFunc := func(peerURL string) error {
+			_, err := tc.MockEtcd.AddMember([]string{"http://localhost:2380"}, nil, []string{peerURL})
+			return err
+		}
+
+		// 启动多个goroutine并发添加成员
+		errChan := make(chan error, 2)
+		go func() { errChan <- addMemberFunc("http://concurrent1:2380") }()
+		go func() { errChan <- addMemberFunc("http://concurrent2:2380") }()
+
+		// 等待所有操作完成
+		for i := 0; i < 2; i++ {
+			if err := <-errChan; err != nil {
+				tc.t.Logf("Concurrent operation %d failed: %v", i+1, err)
+			}
+		}
+
+		// 3. 等待一段时间观察调谐行为
+		time.Sleep(5 * time.Second)
+
+		// 4. 验证集群仍然健康
+		if !tc.MockEtcd.HasQuorum() {
+			return fmt.Errorf("cluster lost quorum during concurrent operations")
+		}
+
+		tc.t.Log("Concurrent operations test completed successfully")
+		return nil
+	})
+
+	if !result.Success {
+		t.Fatalf("Test failed: %v", result.Error)
+	}
+
+	testCluster.PrintClusterState()
+	t.Logf("Test completed in %v", result.Duration)
+}
+
+func TestClusterErrorHandling(t *testing.T) {
+	// 创建测试配置
+	config := &testutil.TestConfig{
+		ClusterName:      "test-error-handling",
+		Namespace:        "default",
+		InitialSize:      3,
+		ReconcileTimeout: 60 * time.Second,
+		EnableDebugLog:   true,
+	}
+
+	// 创建测试集群
+	testCluster := testutil.NewTestCluster(t, config)
+	testCluster.Start()
+	defer testCluster.Stop()
+
+	// 自定义测试函数
+	result := testCluster.RunTest(func(tc *testutil.TestCluster) error {
+		tc.t.Log("Starting error handling test")
+
+		// 1. 等待初始集群就绪
+		err := tc.WaitForClusterReady(30 * time.Second)
+		if err != nil {
+			return fmt.Errorf("initial cluster not ready: %v", err)
+		}
+
+		// 2. 启用故障模式
+		tc.t.Log("Enabling failure mode")
+		tc.EnableFailureMode()
+
+		// 3. 尝试添加成员应该失败
+		_, err = tc.MockEtcd.AddMember([]string{"http://localhost:2380"}, nil, []string{"http://failed-member:2380"})
+		if err == nil {
+			return fmt.Errorf("expected add member to fail in failure mode")
+		}
+
+		// 4. 禁用故障模式
+		tc.t.Log("Disabling failure mode")
+		tc.DisableFailureMode()
+
+		// 5. 等待集群恢复
+		err = tc.WaitForClusterReady(30 * time.Second)
+		if err != nil {
+			return fmt.Errorf("cluster recovery failed: %v", err)
+		}
+
+		tc.t.Log("Error handling test completed successfully")
+		return nil
+	})
+
+	if !result.Success {
+		t.Fatalf("Test failed: %v", result.Error)
+	}
+
+	testCluster.PrintClusterState()
+	t.Logf("Test completed in %v", result.Duration)
+}
+
+// Benchmark tests
+func BenchmarkClusterReconciliation(b *testing.B) {
+	config := &testutil.TestConfig{
+		ClusterName:      "benchmark-reconcile",
+		Namespace:        "default",
+		InitialSize:      3,
+		ReconcileTimeout: 10 * time.Second,
+		EnableDebugLog:   false, // 禁用调试日志以提高性能
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		testCluster := testutil.NewTestCluster(&testing.T{}, config)
+		testCluster.Start()
+
+		result := testCluster.RunTest(testutil.TestClusterBasicReconciliation)
+		if !result.Success {
+			b.Fatalf("Benchmark iteration failed: %v", result.Error)
+		}
+
+		testCluster.Stop()
+	}
+}
