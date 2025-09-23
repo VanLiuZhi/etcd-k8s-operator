@@ -29,12 +29,12 @@ import (
 )
 
 var (
-	clusterName   = flag.String("cluster-name", "debug-etcd-cluster", "Name of the etcd cluster")
-	namespace     = flag.String("namespace", "default", "Namespace for the cluster")
-	initialSize   = flag.Int("size", 3, "Initial cluster size")
-	debugMode     = flag.Bool("debug", true, "Enable debug logging")
-	timeout       = flag.Duration("timeout", 60*time.Second, "Operation timeout")
-	interactive   = flag.Bool("interactive", true, "Enable interactive mode")
+	clusterName = flag.String("cluster-name", "debug-etcd-cluster", "Name of the etcd cluster")
+	namespace   = flag.String("namespace", "default", "Namespace for the cluster")
+	initialSize = flag.Int("size", 3, "Initial cluster size")
+	debugMode   = flag.Bool("debug", true, "Enable debug logging")
+	timeout     = flag.Duration("timeout", 60*time.Second, "Operation timeout")
+	interactive = flag.Bool("interactive", true, "Enable interactive mode")
 )
 
 func main() {

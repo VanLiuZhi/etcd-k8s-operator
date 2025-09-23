@@ -23,8 +23,8 @@ import (
 	"time"
 
 	"github.com/etcd-lz/etcd-k8s-operator/pkg/etcd"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 // MockEtcdClient 模拟Etcd客户端，用于测试成员管理操作

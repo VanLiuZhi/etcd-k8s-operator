@@ -18,12 +18,10 @@ package cluster
 
 import (
 	"fmt"
-	"time"
 
 	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
 	"github.com/etcd-lz/etcd-k8s-operator/pkg/etcd"
 	"github.com/etcd-lz/etcd-k8s-operator/pkg/k8s"
-	"github.com/etcd-lz/etcd-k8s-operator/pkg/util/retry"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -82,18 +80,11 @@ func (c *Cluster) reconcileMembers(running etcd.MemberSet) error {
 	// 实际有效的运行中成员（已过滤未知Pod）
 	L := running.Diff(unknownMembers)
 
-	// 检查是否所有现有成员都在正常运行
+	// TODO 没有理解为什么要在这个条件下触发 resize
 	if L.Size() == c.members.Size() {
-		// 所有成员都在正常运行，检查是否需要调整到期望大小
-		if c.members.Size() == c.cluster.Spec.Size {
-			// 集群状态正常，无需操作
-			return nil
-		}
-		// 需要调整集群大小
 		return c.resize()
 	}
 
-	// 检查法定人数
 	if L.Size() < c.members.Size()/2+1 {
 		return etcd.ErrLostQuorum
 	}
@@ -121,53 +112,27 @@ func (c *Cluster) addOneMember() error {
 	c.status.SetScalingUpCondition(c.members.Size(), c.cluster.Spec.Size)
 
 	// 创建etcd客户端连接
-	client, err := etcd.CreateClient(c.members.ClientURLs(), c.tlsConfig)
+	_, err := etcd.CreateClient(c.members.ClientURLs(), c.tlsConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create etcd client: %v", err)
 	}
-	defer client.Close()
 
 	// 生成新成员
 	newMember := c.newMember()
 
-	// 向etcd集群添加成员（使用重试机制）
-	var addErr error
-	var resp *etcd.AddMemberResponse
-	err = retry.RetryWithBackoff(2*time.Second, 3, func() (bool, error) {
-		resp, addErr = etcd.AddMember(c.members.ClientURLs(), c.tlsConfig, []string{newMember.PeerURL()})
-		if addErr != nil {
-			c.logger.Warn("failed to add member to etcd cluster, will retry", "member", newMember.Name, "error", addErr)
-			return false, addErr
-		}
-		return true, nil
-	})
-
+	// 向etcd集群添加成员
+	// etcd 集群变化：新成员被记录为未启动的 learner/proxy（取决于etcd版本）
+	resp, err := etcd.AddMember(c.members.ClientURLs(), c.tlsConfig, []string{newMember.PeerURL()})
 	if err != nil {
-		return fmt.Errorf("failed to add new member (%s) after retries: %v", newMember.Name, err)
+		return fmt.Errorf("failed to add new member (%s): %v", newMember.Name, err)
 	}
-
 	newMember.ID = resp.Member.ID
 	c.members.Add(newMember)
 
 	// 创建Kubernetes Pod
 	if err := c.createPod(c.members, newMember, "existing"); err != nil {
 		// Pod创建失败，要回滚前面添加的成员
-		c.logger.Error("pod creation failed, rolling back member addition", "member", newMember.Name, "error", err)
-
-		// 尝试回滚：从etcd集群中移除成员
-		rollbackErr := retry.RetryWithBackoff(2*time.Second, 2, func() (bool, error) {
-			rollbackErr := etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, newMember.ID)
-			if rollbackErr != nil {
-				c.logger.Warn("failed to rollback member addition, will retry", "member", newMember.Name, "error", rollbackErr)
-				return false, rollbackErr
-			}
-			return true, nil
-		})
-
-		if rollbackErr != nil {
-			c.logger.Error("failed to rollback member addition", "member", newMember.Name, "error", rollbackErr)
-		}
-
+		_ = etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, newMember.ID)
 		c.members.Remove(newMember.Name)
 		return fmt.Errorf("failed to create member's pod (%s): %v", newMember.Name, err)
 	}
@@ -217,21 +182,11 @@ func (c *Cluster) removeMember(toRemove *etcd.Member) (err error) {
 		}
 	}()
 
-	// 从etcd集群中移除成员（使用重试机制）
-	var removeErr error
-	err = retry.RetryWithBackoff(2*time.Second, 3, func() (bool, error) {
-		removeErr = etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, toRemove.ID)
-		if removeErr != nil {
-			c.logger.Warn("failed to remove member from etcd cluster, will retry", "member", toRemove.Name, "error", removeErr)
-			return false, removeErr
-		}
-		return true, nil
-	})
-
+	// 从etcd集群中移除成员
+	err = etcd.RemoveMember(c.members.ClientURLs(), c.tlsConfig, toRemove.ID)
 	if err != nil {
-		return fmt.Errorf("failed to remove member from etcd cluster after retries: %v", err)
+		return err
 	}
-
 	c.members.Remove(toRemove.Name)
 
 	// 记录事件
@@ -240,15 +195,13 @@ func (c *Cluster) removeMember(toRemove *etcd.Member) (err error) {
 
 	// 删除Pod
 	if err := c.removePod(toRemove.Name); err != nil {
-		c.logger.Error("failed to remove pod, but member was already removed from etcd cluster", "member", toRemove.Name, "error", err)
-		// 即使Pod删除失败，也不影响成员移除操作
+		return err
 	}
 
 	if c.isPodPVEnabled() {
 		err = k8s.DeletePVC(c.config.KubeCli, c.cluster.Namespace, k8s.PVCNameFromMember(toRemove.Name))
 		if err != nil {
-			c.logger.Error("failed to delete PVC, but member was already removed from etcd cluster", "member", toRemove.Name, "error", err)
-			// 即使PVC删除失败，也不影响成员移除操作
+			return err
 		}
 	}
 
@@ -259,65 +212,23 @@ func (c *Cluster) removeMember(toRemove *etcd.Member) (err error) {
 // createPod 创建Pod
 func (c *Cluster) createPod(members etcd.MemberSet, m *etcd.Member, state string) error {
 	pod := k8s.NewEtcdPod(m, members.PeerURLPairs(), c.cluster.Name, state, "", c.cluster, c.cluster.AsOwner())
-
-	// 如果启用PVC，先创建PVC
 	if c.isPodPVEnabled() {
 		pvcSpec := c.cluster.Spec.Pod.PersistentVolumeClaimSpec
 		pvc := k8s.NewEtcdPodPVC(m, *pvcSpec, c.cluster.Name, c.cluster.Namespace, c.cluster.AsOwner())
-
-		// 使用重试机制创建PVC
-		err := retry.RetryWithBackoff(2*time.Second, 3, func() (bool, error) {
-			err := k8s.CreatePVC(c.config.KubeCli, pvc)
-			if err != nil {
-				c.logger.Warn("failed to create PVC, will retry", "member", m.Name, "error", err)
-				return false, err
-			}
-			return true, nil
-		})
-
+		err := k8s.CreatePVC(c.config.KubeCli, pvc)
 		if err != nil {
-			return fmt.Errorf("failed to create PVC for member %s after retries: %v", m.Name, err)
+			return err
 		}
-
 		k8s.AddEtcdVolumeToPod(pod, pvc)
 	} else {
 		k8s.AddEtcdVolumeToPod(pod, nil)
 	}
-
-	// 使用重试机制创建Pod
-	err := retry.RetryWithBackoff(2*time.Second, 3, func() (bool, error) {
-		err := k8s.CreatePod(c.config.KubeCli, c.cluster.Namespace, pod)
-		if err != nil {
-			c.logger.Warn("failed to create Pod, will retry", "member", m.Name, "error", err)
-			return false, err
-		}
-		return true, nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to create Pod for member %s after retries: %v", m.Name, err)
-	}
-
-	return nil
+	return k8s.CreatePod(c.config.KubeCli, c.cluster.Namespace, pod)
 }
 
 // removePod 删除Pod
 func (c *Cluster) removePod(name string) error {
-	// 使用重试机制删除Pod
-	err := retry.RetryWithBackoff(2*time.Second, 3, func() (bool, error) {
-		err := k8s.DeletePod(c.config.KubeCli, c.cluster.Namespace, name)
-		if err != nil {
-			c.logger.Warn("failed to delete Pod, will retry", "pod", name, "error", err)
-			return false, err
-		}
-		return true, nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to delete Pod %s after retries: %v", name, err)
-	}
-
-	return nil
+	return k8s.DeletePod(c.config.KubeCli, c.cluster.Namespace, name)
 }
 
 // podsToMemberSet 将pods转换为成员集合

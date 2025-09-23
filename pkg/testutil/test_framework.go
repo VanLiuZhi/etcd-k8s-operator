@@ -23,10 +23,10 @@ import (
 	"time"
 
 	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
-		"github.com/go-logr/logr/testr"
+	"github.com/go-logr/logr/testr"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -377,8 +377,6 @@ func (tc *TestCluster) DisableFailureMode() {
 	tc.MockEtcd.SetAddMemberFail(false)
 	tc.MockEtcd.SetRemoveMemberFail(false)
 }
-
-
 
 // MockEventRecorder 模拟事件记录器
 type MockEventRecorder struct {

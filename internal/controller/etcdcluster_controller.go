@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	etcdv1alpha1 "github.com/etcd-lz/etcd-k8s-operator/api/v1alpha1"
 	"github.com/etcd-lz/etcd-k8s-operator/pkg/cluster"
@@ -49,8 +48,8 @@ type EtcdClusterReconciler struct {
 	Recorder record.EventRecorder
 	KubeCli  kubernetes.Interface
 
-	// clusters 存储正在管理的集群实例，使用sync.Map保证并发安全
-	clusters sync.Map
+	// clusters 存储正在管理的集群实例
+	clusters map[string]*cluster.Cluster
 }
 
 // +kubebuilder:rbac:groups=k8s.etcd.lz,resources=etcdclusters,verbs=get;list;watch;create;update;patch;delete
@@ -73,7 +72,9 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if apierrors.IsNotFound(err) {
 			logger.Info("EtcdCluster resource not found, ignoring since object must be deleted")
 			// 清理集群实例
-			r.clusters.Delete(req.NamespacedName.String())
+			if r.clusters != nil {
+				delete(r.clusters, req.NamespacedName.String())
+			}
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "Failed to get EtcdCluster")
@@ -106,15 +107,18 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// 初始化集群映射
+	if r.clusters == nil {
+		r.clusters = make(map[string]*cluster.Cluster)
+	}
+
 	clusterKey := req.NamespacedName.String()
 
 	// 检查是否已存在集群实例
-	if existingClusterInterface, exists := r.clusters.Load(clusterKey); exists {
+	if existingCluster, exists := r.clusters[clusterKey]; exists {
 		// 更新现有集群
-		if existingCluster, ok := existingClusterInterface.(*cluster.Cluster); ok {
-			existingCluster.Update(etcdCluster)
-			logger.Info("Updated existing cluster")
-		}
+		existingCluster.Update(etcdCluster)
+		logger.Info("Updated existing cluster")
 	} else {
 		// 创建新的集群实例
 		config := cluster.Config{
@@ -125,7 +129,7 @@ func (r *EtcdClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		newCluster := cluster.New(config, etcdCluster, logger)
-		r.clusters.Store(clusterKey, newCluster)
+		r.clusters[clusterKey] = newCluster
 		logger.Info("Created new cluster")
 	}
 
@@ -139,10 +143,10 @@ func (r *EtcdClusterReconciler) handleDeletion(ctx context.Context, etcdCluster 
 	clusterKey := fmt.Sprintf("%s/%s", etcdCluster.Namespace, etcdCluster.Name)
 
 	// 删除集群实例
-	if clusterInstanceInterface, exists := r.clusters.Load(clusterKey); exists {
-		if clusterInstance, ok := clusterInstanceInterface.(*cluster.Cluster); ok {
+	if r.clusters != nil {
+		if clusterInstance, exists := r.clusters[clusterKey]; exists {
 			clusterInstance.Delete()
-			r.clusters.Delete(clusterKey)
+			delete(r.clusters, clusterKey)
 			logger.Info("Cluster instance deleted")
 		}
 	}
