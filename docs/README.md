@@ -25,6 +25,12 @@
 - **[Kind 开发环境配置](design/KIND_DEVELOPMENT_SETUP.md)** - 专为 Operator 开发优化的 Kind 集群配置
 - **[开发工作流指南](design/DEVELOPMENT_WORKFLOW.md)** - 镜像管理、部署流程和测试工作流
 
+### 🔧 并发控制设计文档 (并发控制设计/)
+- **[etcd-operator并发控制设计方案](并发控制设计/etcd-operator并发控制设计方案.md)** - 完整的双调谐并发控制解决方案 🚀 **NEW**
+- **[双调谐并发控制流程](并发控制设计/diagrams/双调谐并发控制流程.md)** - 详细的流程图和时序图，包含8个核心流程 📊 **NEW**
+- **[实际场景分析](并发控制设计/scenarios/实际场景分析.md)** - 6个真实业务场景的详细处理方案 🎯 **NEW**
+- **[核心实现代码示例](并发控制设计/implementation/核心实现代码示例.md)** - 关键组件的完整Go代码实现 💻 **NEW**
+
 ### 🔄 项目重构文档 (重构/)
 - **[重构管理文档](重构/REFACTORING_MASTER.md)** - 项目重构总体规划、进度跟踪和任务管理
 - **[进度总结文档](重构/PROGRESS_SUMMARY.md)** - 重构进度总结，关键指标和里程碑跟踪
@@ -64,6 +70,8 @@
 5. **[Kind 开发环境配置](design/KIND_DEVELOPMENT_SETUP.md)** - 开发集群设置和调试
 6. **[开发工作流指南](design/DEVELOPMENT_WORKFLOW.md)** - 日常开发流程和最佳实践
 7. **[控制器实现状态报告](design/CONTROLLER_IMPLEMENTATION_COMPLETE.md)** - 当前实现状态
+8. **[etcd-operator并发控制设计方案](并发控制设计/etcd-operator并发控制设计方案.md)** - 并发控制架构设计 🚀 **RECOMMENDED**
+9. **[核心实现代码示例](并发控制设计/implementation/核心实现代码示例.md)** - 关键组件代码实现 💻 **RECOMMENDED**
 
 ### 🧪 测试人员
 如果您负责测试，重点关注：
