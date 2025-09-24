@@ -11,7 +11,8 @@
       "Bash(go:*)",
       "WebFetch(domain:docs.claude.com)",
       "WebSearch",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "mcp__serena__list_dir"
     ],
     "deny": [],
     "ask": []
